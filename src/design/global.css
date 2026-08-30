@@ -1,0 +1,40 @@
+@import './tokens.css';
+
+/* IBM Plex Sans — primary UI/body font, chosen for readability. `latin-*`
+ * subsets only (Auxin's UI is English-only) — the unqualified `400.css` etc.
+ * bundle every Unicode subset (Greek/Cyrillic/Vietnamese/...), which would
+ * ship ~40 unused font files in the packaged app for no benefit. Only the
+ * weights/styles actually used (theme.ts, global.css) are imported: regular
+ * + italic for prose emphasis, 700 for bold/headings. Per the CSS spec,
+ * @import must precede every other rule (@tailwind included) or engines
+ * like WebKit silently ignore it — keep these here. */
+@import '@fontsource/ibm-plex-sans/latin-400.css';
+@import '@fontsource/ibm-plex-sans/latin-400-italic.css';
+@import '@fontsource/ibm-plex-sans/latin-700.css';
+
+/* IBM Plex Mono — code only (inline code / fences), matching family so it
+ * doesn't clash with the sans body text the way an unrelated mono would. */
+@import '@fontsource/ibm-plex-mono/latin-400.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background-color: var(--color-bg);
+  color: var(--color-fg);
+  font-family: var(--font-family);
+  font-size: var(--font-size-base);
+  -webkit-font-smoothing: antialiased;
+}

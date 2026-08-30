@@ -1,0 +1,51 @@
+/*
+ * CSS custom property mirror of tokens.ts. Tailwind config and inline
+ * component styles read these variables directly — never redeclare a raw
+ * hex/rgba/easing value elsewhere. This is the fix for the gap in Mycelium
+ * (Auxin's sister app), where tokens were redeclared ad hoc per component.
+ */
+:root {
+  --color-bg: #000000;
+  --color-fg: #ffffff;
+
+  --fg-opacity-faint: 0.35;
+  --fg-opacity-muted: 0.62;
+  --fg-opacity-prominent: 0.85;
+  --fg-opacity-full: 1;
+
+  --border-subtle: rgba(255, 255, 255, 0.06);
+  --border-default: rgba(255, 255, 255, 0.16);
+  --border-strong: rgba(255, 255, 255, 0.35);
+
+  --accent-link: #5fd0ff;
+  --accent-link-broken: #ff6b5f;
+  --accent-tag: #b7ff5f;
+  --accent-status-dot: #5fff9e;
+  --accent-caret: #ffffff;
+
+  --space-chrome-xs: 4px;
+  --space-chrome-sm: 8px;
+  --space-chrome-md: 12px;
+  --space-chrome-lg: 16px;
+  --space-content-sm: 16px;
+  --space-content-md: 24px;
+  --space-content-lg: 32px;
+
+  /* System law: no border-radius anywhere except circular status dots. */
+  --radius-none: 0px;
+  --radius-full: 9999px;
+
+  --font-family: 'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif;
+  --font-family-mono: 'IBM Plex Mono', ui-monospace, monospace;
+  --font-size-base: 18px;
+  --letter-spacing-label: 1.5px;
+  --letter-spacing-menu: 2px;
+
+  --ease-fast: 0.1s ease;
+  --ease-snappy: 0.16s ease;
+  --ease-press: 0.22s ease;
+  --ease-panel: cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  --duration-panel: 0.3s;
+
+  --border-hairline: 1px solid;
+}
