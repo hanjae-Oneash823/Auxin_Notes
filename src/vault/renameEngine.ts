@@ -81,6 +81,15 @@ export async function renameNote(
   const oldAbsolutePath = `${vaultRoot}/${oldRelativePath}`;
   const newAbsolutePath = `${vaultRoot}/${newRelativePath}`;
 
+  // If this note is open, its live buffer can be ahead of what's on disk —
+  // Editor.tsx's autosave is debounced, so a rename triggered right after
+  // typing could otherwise carry stale content. Flush first so the file
+  // being renamed always has the actual latest text.
+  const openView = getEditorView(oldAbsolutePath);
+  if (openView) {
+    await invoke('write_note', { path: oldAbsolutePath, content: openView.state.doc.toString() });
+  }
+
   await invoke('rename_note', { oldPath: oldAbsolutePath, newPath: newAbsolutePath });
   // Same id at a new path: syncFile records the old title into note_aliases
   // and updates notes.path/title (see upsertParsedNote in syncEngine.ts).

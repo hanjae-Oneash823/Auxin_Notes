@@ -40,6 +40,14 @@ export function createHideSyntaxPlugin(readOnly: boolean) {
       }
 
       update(update: ViewUpdate) {
+        // Rebuilding decorations out from under an active IME composition
+        // (typing Korean/Japanese/Chinese) crashes CodeMirror's own
+        // composition handling — remap positions instead and defer the
+        // real rebuild until composition ends (its own docChanged fires).
+        if (update.view.composing) {
+          if (update.docChanged) this.decorations = this.decorations.map(update.changes);
+          return;
+        }
         if (update.docChanged || update.selectionSet || update.viewportChanged) {
           this.decorations = buildDecorations(update.view, readOnly);
         }

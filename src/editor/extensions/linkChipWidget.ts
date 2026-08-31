@@ -1,4 +1,4 @@
-import { RangeSetBuilder } from '@codemirror/state';
+import { RangeSetBuilder, StateEffect } from '@codemirror/state';
 import {
   Decoration,
   type DecorationSet,
@@ -7,6 +7,14 @@ import {
   type ViewUpdate,
   WidgetType,
 } from '@codemirror/view';
+
+/** Dispatched by Editor.tsx whenever the vault's syncVersion changes (some
+ *  file elsewhere was created/renamed/edited) — tells this plugin to drop
+ *  its cached resolutions and re-check every chip, since a target's
+ *  resolved/ambiguous/broken status can change without this document's own
+ *  text changing at all (e.g. a previously-broken link's target note gets
+ *  created elsewhere). */
+export const refreshLinkChipsEffect = StateEffect.define<null>();
 import { getDb } from '../../db/client';
 import {
   type LinkCandidate,
@@ -43,6 +51,7 @@ class LinkChipWidget extends WidgetType {
     private readonly to: number,
     private readonly onNavigate: (path: string) => void,
     private readonly readOnly: boolean,
+    private readonly version: number,
   ) {
     super();
   }
@@ -52,7 +61,8 @@ class LinkChipWidget extends WidgetType {
       other.target === this.target &&
       other.displayText === this.displayText &&
       other.from === this.from &&
-      other.to === this.to
+      other.to === this.to &&
+      other.version === this.version
     );
   }
 
@@ -224,10 +234,12 @@ async function showPreview(anchor: HTMLElement, vaultRoot: string, target: strin
  * status-colored border) when the cursor is off that line, raw brackets when
  * on it — same dual-mode rule as images and syntax-hiding. Resolution status
  * (resolved/stale/ambiguous/broken) is looked up against the index and
- * cached for the session; a hover after a short delay shows a preview card.
- * An ambiguous chip is click-to-disambiguate (pick which note, rewritten as
- * a path-qualified link); a stale one (resolved only via note_aliases) is
- * click-to-relink to the note's current title.
+ * cached until a `refreshLinkChipsEffect` dispatch invalidates it (Editor.tsx
+ * fires one whenever the vault's syncVersion changes); a hover after a short
+ * delay shows a preview card. An ambiguous chip is click-to-disambiguate
+ * (pick which note, rewritten as a path-qualified link); a stale one
+ * (resolved only via note_aliases) is click-to-relink to the note's current
+ * title.
  */
 export function createLinkChipPlugin(
   vaultRoot: string,
@@ -237,12 +249,30 @@ export function createLinkChipPlugin(
   return ViewPlugin.fromClass(
     class {
       decorations: DecorationSet;
+      version = 0;
       constructor(view: EditorView) {
-        this.decorations = build(view, vaultRoot, onNavigate, readOnly);
+        this.decorations = build(view, vaultRoot, onNavigate, readOnly, this.version);
       }
       update(update: ViewUpdate) {
-        if (update.docChanged || update.selectionSet || update.viewportChanged) {
-          this.decorations = build(update.view, vaultRoot, onNavigate, readOnly);
+        const shouldRefresh = update.transactions.some((tr) =>
+          tr.effects.some((effect) => effect.is(refreshLinkChipsEffect)),
+        );
+        if (shouldRefresh) {
+          // Cache is keyed only by vaultRoot::target with no way to know
+          // which entries a given sync actually invalidated — clearing all
+          // of it is cheap (local SQLite lookups) and always correct.
+          resolutionCache.clear();
+          this.version++;
+        }
+        // See hideSyntaxPlugin.ts — rebuilding mid-IME-composition crashes
+        // CodeMirror's composition handling, so just remap positions and
+        // defer the real rebuild until composition ends.
+        if (update.view.composing) {
+          if (update.docChanged) this.decorations = this.decorations.map(update.changes);
+          return;
+        }
+        if (update.docChanged || update.selectionSet || update.viewportChanged || shouldRefresh) {
+          this.decorations = build(update.view, vaultRoot, onNavigate, readOnly, this.version);
         }
       }
     },
@@ -255,6 +285,7 @@ function build(
   vaultRoot: string,
   onNavigate: (path: string) => void,
   readOnly: boolean,
+  version: number,
 ): DecorationSet {
   const builder = new RangeSetBuilder<Decoration>();
   const selection = view.state.selection.main;
@@ -287,6 +318,7 @@ function build(
                 end,
                 onNavigate,
                 readOnly,
+                version,
               ),
             }),
           );

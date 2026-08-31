@@ -54,6 +54,74 @@ pub fn ensure_dir(path: String) -> Result<(), String> {
     fs::create_dir_all(&path).map_err(|e| e.to_string())
 }
 
+const ATTACHMENTS_DIR_NAME: &str = "attachments";
+
+fn attachments_dir(vault_root: &str) -> PathBuf {
+    PathBuf::from(vault_root).join(ATTACHMENTS_DIR_NAME)
+}
+
+/// Appends `-1`, `-2`, ... before the extension until the name is free —
+/// keeps a human-readable original name instead of a random suffix, since
+/// collisions are the exception (mostly a re-pasted screenshot with the
+/// same default name).
+fn unique_path_in(dir: &Path, file_name: &str) -> PathBuf {
+    let candidate = dir.join(file_name);
+    if !candidate.exists() {
+        return candidate;
+    }
+    let stem = Path::new(file_name)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("file");
+    let ext = Path::new(file_name).extension().and_then(|s| s.to_str());
+    let mut n = 1;
+    loop {
+        let name = match ext {
+            Some(ext) => format!("{stem}-{n}.{ext}"),
+            None => format!("{stem}-{n}"),
+        };
+        let next = dir.join(&name);
+        if !next.exists() {
+            return next;
+        }
+        n += 1;
+    }
+}
+
+/// Saves base64-encoded image bytes (a paste or drag-drop `Blob`, which has
+/// no filesystem path to copy from) into the vault's attachments folder.
+/// Returns the vault-relative path for the markdown link.
+#[tauri::command]
+pub fn save_image_data(vault_root: String, base64_data: String, file_name: String) -> Result<String, String> {
+    let dir = attachments_dir(&vault_root);
+    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let target = unique_path_in(&dir, &file_name);
+    let bytes = general_purpose::STANDARD
+        .decode(&base64_data)
+        .map_err(|e| e.to_string())?;
+    fs::write(&target, &bytes).map_err(|e| e.to_string())?;
+    let saved_name = target.file_name().and_then(|n| n.to_str()).unwrap_or(&file_name);
+    Ok(format!("{ATTACHMENTS_DIR_NAME}/{saved_name}"))
+}
+
+/// Copies a file already on disk (chosen via the file picker) into the
+/// vault's attachments folder. Returns the vault-relative path for the
+/// markdown link.
+#[tauri::command]
+pub fn copy_image_file(vault_root: String, source_path: String) -> Result<String, String> {
+    let dir = attachments_dir(&vault_root);
+    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let source = PathBuf::from(&source_path);
+    let file_name = source
+        .file_name()
+        .and_then(|n| n.to_str())
+        .ok_or_else(|| format!("\"{source_path}\" has no file name"))?;
+    let target = unique_path_in(&dir, file_name);
+    fs::copy(&source, &target).map_err(|e| e.to_string())?;
+    let saved_name = target.file_name().and_then(|n| n.to_str()).unwrap_or(file_name);
+    Ok(format!("{ATTACHMENTS_DIR_NAME}/{saved_name}"))
+}
+
 /// Returns an image file as a `data:` URL. Sidesteps Tauri's asset-protocol
 /// scope configuration (which would need to be widened at runtime to an
 /// arbitrary user-chosen vault path) at the cost of base64 overhead — fine

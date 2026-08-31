@@ -10,12 +10,75 @@ export interface FontFamilyOption {
   monoFontFamily: string;
 }
 
+const MONO_FALLBACK = "'IBM Plex Mono', ui-monospace, monospace";
+
 export const FONT_FAMILY_OPTIONS: FontFamilyOption[] = [
   {
     id: 'ibm-plex',
     label: 'IBM Plex Sans',
     fontFamily: "'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif",
-    monoFontFamily: "'IBM Plex Mono', ui-monospace, monospace",
+    monoFontFamily: MONO_FALLBACK,
+  },
+  // Candidates below — all picked for legibility specifically, not looks.
+  {
+    id: 'atkinson-hyperlegible',
+    label: 'Atkinson Hyperlegible',
+    fontFamily: "'Atkinson Hyperlegible', ui-sans-serif, system-ui, sans-serif",
+    monoFontFamily: MONO_FALLBACK,
+  },
+  {
+    id: 'lexend',
+    label: 'Lexend',
+    fontFamily: "'Lexend', ui-sans-serif, system-ui, sans-serif",
+    monoFontFamily: MONO_FALLBACK,
+  },
+  {
+    id: 'inter',
+    label: 'Inter',
+    fontFamily: "'Inter', ui-sans-serif, system-ui, sans-serif",
+    monoFontFamily: MONO_FALLBACK,
+  },
+  {
+    id: 'source-sans-3',
+    label: 'Source Sans 3',
+    fontFamily: "'Source Sans 3', ui-sans-serif, system-ui, sans-serif",
+    monoFontFamily: MONO_FALLBACK,
+  },
+  {
+    id: 'public-sans',
+    label: 'Public Sans',
+    fontFamily: "'Public Sans', ui-sans-serif, system-ui, sans-serif",
+    monoFontFamily: MONO_FALLBACK,
+  },
+  {
+    id: 'work-sans',
+    label: 'Work Sans',
+    fontFamily: "'Work Sans', ui-sans-serif, system-ui, sans-serif",
+    monoFontFamily: MONO_FALLBACK,
+  },
+  {
+    id: 'noto-sans',
+    label: 'Noto Sans',
+    fontFamily: "'Noto Sans', ui-sans-serif, system-ui, sans-serif",
+    monoFontFamily: MONO_FALLBACK,
+  },
+  {
+    id: 'literata',
+    label: 'Literata',
+    fontFamily: "'Literata', ui-serif, Georgia, serif",
+    monoFontFamily: MONO_FALLBACK,
+  },
+  {
+    id: 'newsreader',
+    label: 'Newsreader',
+    fontFamily: "'Newsreader', ui-serif, Georgia, serif",
+    monoFontFamily: MONO_FALLBACK,
+  },
+  {
+    id: 'spectral',
+    label: 'Spectral',
+    fontFamily: "'Spectral', ui-serif, Georgia, serif",
+    monoFontFamily: MONO_FALLBACK,
   },
 ];
 

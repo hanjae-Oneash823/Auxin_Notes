@@ -16,6 +16,45 @@
  * doesn't clash with the sans body text the way an unrelated mono would. */
 @import '@fontsource/ibm-plex-mono/latin-400.css';
 
+/* Candidate body fonts for the settings picker (design/fontOptions.ts) —
+ * all self-hosted the same way as IBM Plex above, `latin-*` only, and all
+ * loaded eagerly (not lazily per-selection) since the font-family CSS var
+ * can switch to any of these at runtime without a page reload. Every font
+ * here was picked specifically for legibility, not aesthetics: Atkinson
+ * Hyperlegible and Lexend are purpose-built/research-backed for reading
+ * clarity; the rest are widely-vetted humanist sans and reading-optimized
+ * serifs. Lexend has no italic style upstream, so it's skipped here (the
+ * browser falls back to faux-italic if selected). */
+@import '@fontsource/atkinson-hyperlegible/latin-400.css';
+@import '@fontsource/atkinson-hyperlegible/latin-400-italic.css';
+@import '@fontsource/atkinson-hyperlegible/latin-700.css';
+@import '@fontsource/lexend/latin-400.css';
+@import '@fontsource/lexend/latin-700.css';
+@import '@fontsource/inter/latin-400.css';
+@import '@fontsource/inter/latin-400-italic.css';
+@import '@fontsource/inter/latin-700.css';
+@import '@fontsource/source-sans-3/latin-400.css';
+@import '@fontsource/source-sans-3/latin-400-italic.css';
+@import '@fontsource/source-sans-3/latin-700.css';
+@import '@fontsource/public-sans/latin-400.css';
+@import '@fontsource/public-sans/latin-400-italic.css';
+@import '@fontsource/public-sans/latin-700.css';
+@import '@fontsource/work-sans/latin-400.css';
+@import '@fontsource/work-sans/latin-400-italic.css';
+@import '@fontsource/work-sans/latin-700.css';
+@import '@fontsource/noto-sans/latin-400.css';
+@import '@fontsource/noto-sans/latin-400-italic.css';
+@import '@fontsource/noto-sans/latin-700.css';
+@import '@fontsource/literata/latin-400.css';
+@import '@fontsource/literata/latin-400-italic.css';
+@import '@fontsource/literata/latin-700.css';
+@import '@fontsource/newsreader/latin-400.css';
+@import '@fontsource/newsreader/latin-400-italic.css';
+@import '@fontsource/newsreader/latin-700.css';
+@import '@fontsource/spectral/latin-400.css';
+@import '@fontsource/spectral/latin-400-italic.css';
+@import '@fontsource/spectral/latin-700.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -37,4 +76,37 @@ body {
   font-family: var(--font-family);
   font-size: var(--font-size-base);
   -webkit-font-smoothing: antialiased;
+  user-select: none;
+  scrollbar-color: var(--border-strong) var(--color-bg);
+  scrollbar-width: thin;
+}
+
+/* WebKit/Chromium scrollbars (Tauri's webview on every platform is one or
+ * the other) — the `scrollbar-color` above only covers Firefox-family
+ * engines, which Tauri never uses, so this is what actually renders. */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: var(--color-bg);
+}
+::-webkit-scrollbar-thumb {
+  background-color: var(--border-strong);
+  background-clip: padding-box;
+  border: 2px solid transparent;
+  border-radius: var(--radius-none);
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(255, 255, 255, var(--fg-opacity-muted));
+}
+::-webkit-scrollbar-corner {
+  background: var(--color-bg);
+}
+
+/* Text selection is reserved for the note content itself — everywhere else
+ * (sidebar, panels, status bar, chrome) is unselectable. */
+.cm-editor,
+.cm-editor * {
+  user-select: text;
 }

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { platform } from '@tauri-apps/plugin-os';
 import { Editor } from './editor/Editor';
 import { VaultPicker } from './app/firstRun/VaultPicker';
 import { getDb } from './db/client';
@@ -12,11 +13,17 @@ import { useSettingsStore } from './app/settings/settingsStore';
 import { AppShell } from './layout/AppShell';
 import { Sidebar } from './layout/Sidebar';
 import { StatusBar } from './layout/StatusBar';
+import { TabBar, type TabItem } from './layout/TabBar';
+import { TitleBar } from './layout/TitleBar';
+import { titleFromPath } from './vault/noteTitle';
 import { NoteList } from './notes/NoteList';
 import { TagBrowser } from './notes/TagBrowser';
 import { BacklinksPanel } from './notes/BacklinksPanel';
 import { UnresolvedLinksPanel } from './notes/UnresolvedLinksPanel';
 import { SearchPanel } from './search/SearchPanel';
+import { GraphPanel } from './graph/GraphPanel';
+
+const HOME_TAB_ID = 'home';
 
 async function fetchNotes(vaultRoot: string, tag: string | null): Promise<NoteSummary[]> {
   const db = await getDb(vaultRoot);
@@ -28,7 +35,25 @@ async function fetchUnresolvedCount(vaultRoot: string): Promise<number> {
   return (await getUnresolvedLinkGroups(db)).length;
 }
 
-function VaultReady({ vaultRoot }: { vaultRoot: string }) {
+interface VaultReadyProps {
+  vaultRoot: string;
+  activeTabId: string;
+  tabItems: TabItem[];
+  setActiveTabId: (id: string) => void;
+  openAbsolutePath: (absolutePath: string) => void;
+  closeTab: (id: string) => void;
+  renameTabId: (oldId: string, newId: string) => void;
+}
+
+function VaultReady({
+  vaultRoot,
+  activeTabId,
+  tabItems,
+  setActiveTabId,
+  openAbsolutePath,
+  closeTab,
+  renameTabId,
+}: VaultReadyProps) {
   // allNotes is unfiltered — needed so the active note can still be found
   // by id (for BacklinksPanel) even when a tag filter hides it from the
   // displayed `notes` list.
@@ -36,12 +61,13 @@ function VaultReady({ vaultRoot }: { vaultRoot: string }) {
   const [notes, setNotes] = useState<NoteSummary[] | null>(null);
   const [unresolvedCount, setUnresolvedCount] = useState(0);
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
-  const [activePath, setActivePath] = useState<string | null>(null);
+  const activePath = activeTabId === HOME_TAB_ID ? null : activeTabId;
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const [renameStatus, setRenameStatus] = useState<{ message: string; isError: boolean } | null>(null);
   // Resets to writing mode on every app launch — not persisted, deliberately.
   const [isReadingMode, setIsReadingMode] = useState(false);
+  const [isGraphMode, setIsGraphMode] = useState(false);
 
   async function refreshNotes() {
     const [all, unresolved] = await Promise.all([
@@ -60,7 +86,7 @@ function VaultReady({ vaultRoot }: { vaultRoot: string }) {
   }, [vaultRoot, selectedTag, syncVersion]);
 
   function openRelativePath(relativePath: string) {
-    setActivePath(`${vaultRoot}/${relativePath}`);
+    openAbsolutePath(`${vaultRoot}/${relativePath}`);
   }
 
   async function createNote() {
@@ -69,7 +95,10 @@ function VaultReady({ vaultRoot }: { vaultRoot: string }) {
     await invoke('write_note', { path: absolutePath, content: '' });
     await syncFile(vaultRoot, absolutePath);
     await refreshNotes();
-    setActivePath(absolutePath);
+    openAbsolutePath(absolutePath);
+    // A freshly created note is opened to be written into — reading mode
+    // would make it immediately non-editable with no obvious way to start.
+    setIsReadingMode(false);
   }
 
   function startRename(note: NoteSummary) {
@@ -78,9 +107,10 @@ function VaultReady({ vaultRoot }: { vaultRoot: string }) {
     setRenameStatus(null);
   }
 
-  async function commitRename(note: NoteSummary) {
-    const title = renameValue.trim();
-    setRenamingId(null);
+  /** Shared by the sidebar's inline rename and the editor's title field —
+   *  both ultimately do the same rename against the same note. */
+  async function performRename(note: NoteSummary, newTitle: string) {
+    const title = newTitle.trim();
     if (!title || title === note.title) return;
 
     try {
@@ -94,13 +124,27 @@ function VaultReady({ vaultRoot }: { vaultRoot: string }) {
                 : ''
             }`;
       setRenameStatus({ message, isError: result.failures.length > 0 });
-      if (activePath === `${vaultRoot}/${note.path}`) {
-        setActivePath(`${vaultRoot}/${result.newPath}`);
-      }
+      // A rename can affect a tab even when it's not the active one (a note
+      // renamed from elsewhere, e.g. the sidebar, while open in the
+      // background) — so this remaps by tab id, not just the active path.
+      renameTabId(`${vaultRoot}/${note.path}`, `${vaultRoot}/${result.newPath}`);
       await refreshNotes();
     } catch (error: unknown) {
       setRenameStatus({ message: error instanceof Error ? error.message : String(error), isError: true });
+      throw error;
     }
+  }
+
+  async function commitRename(note: NoteSummary) {
+    const title = renameValue.trim();
+    setRenamingId(null);
+    await performRename(note, title).catch(() => {});
+  }
+
+  /** Renames the currently open note — backs the editor's title field. */
+  async function renameActiveNote(newTitle: string) {
+    if (!activeNote) return;
+    await performRename(activeNote, newTitle);
   }
 
   const activeRelativePath = activePath ? toRelativePath(vaultRoot, activePath) : null;
@@ -157,20 +201,47 @@ function VaultReady({ vaultRoot }: { vaultRoot: string }) {
           unresolvedCount={unresolvedCount}
           isReadingMode={isReadingMode}
           onToggleReadingMode={() => setIsReadingMode((mode) => !mode)}
+          isGraphMode={isGraphMode}
+          onToggleGraphMode={() => setIsGraphMode((mode) => !mode)}
         />
       }
     >
-      {activePath ? (
-        <Editor
-          key={activePath}
-          path={activePath}
-          vaultRoot={vaultRoot}
-          onNavigate={openRelativePath}
-          readOnly={isReadingMode}
-        />
-      ) : (
-        <div className="flex h-full items-center justify-center text-fg-faint">select or create a note</div>
-      )}
+      <div className="flex h-full flex-col">
+        {/* macOS gets tabs inline in the window header (TitleBar) instead —
+            this fallback row only renders where that header doesn't exist. */}
+        {platform() !== 'macos' && !isGraphMode && (
+          <TabBar
+            tabs={tabItems}
+            activeTabId={activeTabId}
+            onSelect={setActiveTabId}
+            onClose={closeTab}
+            className="shrink-0 border-b border-border"
+          />
+        )}
+        <div className="min-h-0 flex-1">
+          {isGraphMode ? (
+            <GraphPanel
+              vaultRoot={vaultRoot}
+              activePath={activeRelativePath}
+              onSelect={(path) => {
+                openRelativePath(path);
+                setIsGraphMode(false);
+              }}
+            />
+          ) : activePath ? (
+            <Editor
+              key={activePath}
+              path={activePath}
+              vaultRoot={vaultRoot}
+              onNavigate={openRelativePath}
+              onRenameTitle={renameActiveNote}
+              readOnly={isReadingMode}
+            />
+          ) : (
+            <div className="h-full" />
+          )}
+        </div>
+      </div>
     </AppShell>
   );
 }
@@ -179,26 +250,72 @@ function App() {
   const { vaultRoot, status, initFromConfig } = useVaultStore();
   const initSettings = useSettingsStore((state) => state.initFromConfig);
 
+  // Tab state lives here (not in VaultReady) so the macOS window header
+  // (TitleBar, a sibling of VaultReady) can render the same tabs.
+  const [tabs, setTabs] = useState<string[]>([HOME_TAB_ID]);
+  const [activeTabId, setActiveTabId] = useState<string>(HOME_TAB_ID);
+
+  /** Opens a note's tab, focusing it if already open rather than duplicating it. */
+  function openAbsolutePath(absolutePath: string) {
+    setTabs((prev) => (prev.includes(absolutePath) ? prev : [...prev, absolutePath]));
+    setActiveTabId(absolutePath);
+  }
+
+  /** Closes a tab. The HOME tab is pinned and ignores this. Closing the
+   *  active tab falls back to its left neighbor, then HOME. */
+  function closeTab(tabId: string) {
+    if (tabId === HOME_TAB_ID) return;
+    const index = tabs.indexOf(tabId);
+    if (index === -1) return;
+    const next = tabs.filter((id) => id !== tabId);
+    setTabs(next);
+    if (activeTabId === tabId) {
+      setActiveTabId(next[index - 1] ?? next[0] ?? HOME_TAB_ID);
+    }
+  }
+
+  function renameTabId(oldId: string, newId: string) {
+    setTabs((prev) => prev.map((id) => (id === oldId ? newId : id)));
+    if (activeTabId === oldId) setActiveTabId(newId);
+  }
+
   useEffect(() => {
     void initFromConfig();
     void initSettings();
   }, [initFromConfig, initSettings]);
 
-  if (status === 'loading' && !vaultRoot) {
-    return (
-      <main className="flex h-full flex-col items-center justify-center">
-        <span className="text-fg-muted tracking-menu uppercase" style={{ fontSize: '0.78rem' }}>
-          loading…
-        </span>
-      </main>
-    );
-  }
+  const tabItems: TabItem[] = tabs.map((id) => ({
+    id,
+    label: id === HOME_TAB_ID ? 'home' : titleFromPath(id),
+    closable: id !== HOME_TAB_ID,
+  }));
 
-  if (!vaultRoot) {
-    return <VaultPicker />;
-  }
-
-  return <VaultReady vaultRoot={vaultRoot} />;
+  return (
+    <div className="flex h-full flex-col">
+      <TitleBar tabs={tabItems} activeTabId={activeTabId} onSelectTab={setActiveTabId} onCloseTab={closeTab} />
+      <div className="min-h-0 flex-1">
+        {status === 'loading' && !vaultRoot ? (
+          <main className="flex h-full flex-col items-center justify-center">
+            <span className="text-fg-muted tracking-menu uppercase" style={{ fontSize: '0.78rem' }}>
+              loading…
+            </span>
+          </main>
+        ) : !vaultRoot ? (
+          <VaultPicker />
+        ) : (
+          <VaultReady
+            vaultRoot={vaultRoot}
+            activeTabId={activeTabId}
+            tabItems={tabItems}
+            setActiveTabId={setActiveTabId}
+            openAbsolutePath={openAbsolutePath}
+            closeTab={closeTab}
+            renameTabId={renameTabId}
+          />
+        )}
+      </div>
+    </div>
+  );
 }
 
 export default App;

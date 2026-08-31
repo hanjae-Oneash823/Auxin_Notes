@@ -27,6 +27,7 @@ tauri-plugin-fs = "2.5.1"
 tauri-plugin-dialog = "2.7.2"
 tauri-plugin-single-instance = "2.4.3"
 tauri-plugin-sql = { version = "2.4.0", features = ["sqlite"] }
+tauri-plugin-os = "2"
 notify-debouncer-full = "0.7.0"
 base64 = "0.23.1"
 

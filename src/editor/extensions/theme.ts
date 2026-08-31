@@ -32,6 +32,12 @@ export const auxinEditorTheme = EditorView.theme(
     '.cm-scroller': {
       fontFamily: 'var(--font-family)',
       lineHeight: '1.6',
+      scrollbarWidth: 'none',
+    },
+    // Main editing area only — scoped to `.cm-scroller` so every other
+    // scrollbar (sidebar, panels) keeps the app-wide dark-themed style.
+    '.cm-scroller::-webkit-scrollbar': {
+      display: 'none',
     },
     '.cm-gutters': {
       display: 'none',

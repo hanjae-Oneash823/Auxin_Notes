@@ -5,16 +5,20 @@ import { EditorState, type Extension } from '@codemirror/state';
 import { drawSelection, dropCursor, EditorView, keymap } from '@codemirror/view';
 import { createFrontmatterFoldPlugin } from './frontmatterFoldPlugin';
 import { createHideSyntaxPlugin } from './hideSyntaxPlugin';
+import { createImageDropPastePlugin } from './imageDropPastePlugin';
 import { createImageWidgetPlugin } from './imageWidget';
 import { createLinkChipPlugin } from './linkChipWidget';
 import { createSlashCommandPlugin } from './slashCommandPlugin';
 import { auxinEditorTheme } from './theme';
 import { createWikilinkAutocomplete } from './wikilinkAutocomplete';
 
-function resolveImagePath(notePath: string, url: string): string {
+/** Image paths are vault-root-relative (all pasted/dropped/picked images
+ *  land in a single vault-wide `attachments/` folder), not note-relative —
+ *  so this resolves against `vaultRoot` regardless of the note's own
+ *  location in the folder tree. */
+function resolveImagePath(vaultRoot: string, url: string): string {
   if (url.startsWith('/') || /^[a-z]+:/i.test(url)) return url;
-  const noteDir = notePath.slice(0, notePath.lastIndexOf('/'));
-  return `${noteDir}/${url}`;
+  return `${vaultRoot}/${url}`;
 }
 
 /**
@@ -24,7 +28,6 @@ function resolveImagePath(notePath: string, url: string): string {
  */
 export function markdownSetup(
   vaultRoot: string,
-  notePath: string,
   onNavigate: (path: string) => void,
   readOnly: boolean,
 ): Extension[] {
@@ -42,11 +45,13 @@ export function markdownSetup(
     markdown(),
     createHideSyntaxPlugin(readOnly),
     createFrontmatterFoldPlugin(readOnly),
-    createImageWidgetPlugin((url) => resolveImagePath(notePath, url), readOnly),
+    createImageWidgetPlugin((url) => resolveImagePath(vaultRoot, url), readOnly),
     createLinkChipPlugin(vaultRoot, onNavigate, readOnly),
     // Editing-only affordances — pointless (and inert, since readOnly blocks
     // any change they'd try to make) when the doc can't be edited.
-    ...(readOnly ? [] : [createWikilinkAutocomplete(vaultRoot), createSlashCommandPlugin()]),
+    ...(readOnly
+      ? []
+      : [createWikilinkAutocomplete(vaultRoot), createSlashCommandPlugin(), createImageDropPastePlugin(vaultRoot)]),
     auxinEditorTheme,
   ];
 }
