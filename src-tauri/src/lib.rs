@@ -3,10 +3,10 @@ mod watcher;
 
 use commands::app_config::{get_app_config, set_app_config};
 use commands::fs_ops::{
-    copy_image_file, delete_note, ensure_dir, read_image_data_url, read_note, rename_note,
-    save_image_data, write_note,
+    copy_image_file, delete_folder, delete_note, ensure_dir, move_folder, read_image_data_url, read_note,
+    rename_note, save_image_data, write_note,
 };
-use commands::vault_scan::list_vault_files;
+use commands::vault_scan::{list_vault_files, list_vault_folders};
 use tauri::{WebviewUrl, WebviewWindowBuilder};
 use watcher::{watch_vault, WatcherState};
 
@@ -22,8 +22,8 @@ pub fn run() {
         .manage(WatcherState::default())
         .setup(|app| {
             let win_builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
-                .title("auxin")
-                .inner_size(800.0, 600.0);
+                .title("Auxin")
+                .inner_size(1280.0, 832.0);
 
             // macOS: overlay title bar — native traffic lights float over our
             // own drawn header instead of a system title bar row, matching
@@ -45,11 +45,14 @@ pub fn run() {
             write_note,
             rename_note,
             delete_note,
+            delete_folder,
             ensure_dir,
+            move_folder,
             read_image_data_url,
             save_image_data,
             copy_image_file,
             list_vault_files,
+            list_vault_folders,
             watch_vault,
             get_app_config,
             set_app_config,

@@ -31,12 +31,18 @@
   --space-content-md: 24px;
   --space-content-lg: 32px;
 
+  --width-rail: 3.25rem;
+  --width-sidebar-left: 16rem;
+  --width-sidebar-right: 16rem;
+
   /* System law: no border-radius anywhere except circular status dots. */
   --radius-none: 0px;
   --radius-full: 9999px;
 
-  --font-family: 'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif;
+  --font-family: 'IBM Plex Sans', 'Noto Sans KR', ui-sans-serif, system-ui, sans-serif;
   --font-family-mono: 'IBM Plex Mono', ui-monospace, monospace;
+  /* Decorative wordmark only (the "[auxin]" header label) — not a body font. */
+  --font-family-brand: 'Amarante', cursive;
   --font-size-base: 18px;
   --letter-spacing-label: 1.5px;
   --letter-spacing-menu: 2px;

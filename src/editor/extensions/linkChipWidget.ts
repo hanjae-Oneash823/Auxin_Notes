@@ -231,8 +231,9 @@ async function showPreview(anchor: HTMLElement, vaultRoot: string, target: strin
 
 /**
  * Renders `[[Target|alias]]` as a small hoverable chip (sharp corners, thin
- * status-colored border) when the cursor is off that line, raw brackets when
- * on it — same dual-mode rule as images and syntax-hiding. Resolution status
+ * status-colored border), reverting to raw brackets only for the specific
+ * occurrence the cursor/selection actually overlaps — other links on the
+ * same line stay chips. Resolution status
  * (resolved/stale/ambiguous/broken) is looked up against the index and
  * cached until a `refreshLinkChipsEffect` dispatch invalidates it (Editor.tsx
  * fires one whenever the vault's syncVersion changes); a hover after a short
@@ -294,35 +295,35 @@ function build(
     let pos = from;
     while (pos <= to) {
       const line = view.state.doc.lineAt(pos);
-      const cursorOnLine = !readOnly && selection.from <= line.to && selection.to >= line.from;
 
-      if (!cursorOnLine) {
-        for (const match of line.text.matchAll(WIKILINK_PATTERN)) {
-          const start = line.from + (match.index ?? 0);
-          const end = start + match[0].length;
-          const target = match[1].trim();
-          const alias = match[2]?.trim();
-          const displayText = alias ?? target;
-          const aliasSuffix = match[2] !== undefined ? `|${match[2]}` : '';
-          builder.add(
-            start,
-            end,
-            Decoration.replace({
-              widget: new LinkChipWidget(
-                view,
-                vaultRoot,
-                target,
-                displayText,
-                aliasSuffix,
-                start,
-                end,
-                onNavigate,
-                readOnly,
-                version,
-              ),
-            }),
-          );
-        }
+      for (const match of line.text.matchAll(WIKILINK_PATTERN)) {
+        const start = line.from + (match.index ?? 0);
+        const end = start + match[0].length;
+        const cursorInLink = !readOnly && selection.from <= end && selection.to >= start;
+        if (cursorInLink) continue;
+
+        const target = match[1].trim();
+        const alias = match[2]?.trim();
+        const displayText = alias ?? target;
+        const aliasSuffix = match[2] !== undefined ? `|${match[2]}` : '';
+        builder.add(
+          start,
+          end,
+          Decoration.replace({
+            widget: new LinkChipWidget(
+              view,
+              vaultRoot,
+              target,
+              displayText,
+              aliasSuffix,
+              start,
+              end,
+              onNavigate,
+              readOnly,
+              version,
+            ),
+          }),
+        );
       }
       pos = line.to + 1;
     }

@@ -26,8 +26,21 @@ export const auxinEditorTheme = EditorView.theme(
     '.cm-cursor, .cm-dropCursor': {
       borderLeftColor: 'var(--accent-caret)',
     },
+    // Inverted (reverse-video) selection: a solid fg-colored background
+    // layer (CM6 draws this separately from the text) paired with a
+    // `::selection` rule that swaps the *text* to the bg color. CM6's own
+    // base theme force-transparents `::selection`'s background-color with
+    // `!important` (so it doesn't double up with this layer) but leaves
+    // `color` alone, which is what makes the text-swap half possible here.
+    // The `!important` here is needed too — CM6's base theme has its own
+    // more specific `&dark.cm-focused > .cm-scroller > .cm-selectionLayer
+    // .cm-selectionBackground` rule (`#233`) that otherwise wins while the
+    // editor is focused, which is what was showing instead of this color.
     '&.cm-focused .cm-selectionBackground, .cm-selectionBackground': {
-      backgroundColor: 'var(--border-default)',
+      backgroundColor: 'var(--color-fg) !important',
+    },
+    '.cm-content ::selection': {
+      color: 'var(--color-bg)',
     },
     '.cm-scroller': {
       fontFamily: 'var(--font-family)',

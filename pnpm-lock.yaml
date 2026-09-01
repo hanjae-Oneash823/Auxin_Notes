@@ -29,6 +29,9 @@ importers:
       '@codemirror/view':
         specifier: ^6.43.9
         version: 6.43.9
+      '@fontsource/amarante':
+        specifier: ^5.3.0
+        version: 5.3.0
       '@fontsource/atkinson-hyperlegible':
         specifier: ^5.3.0
         version: 5.3.0
@@ -53,6 +56,9 @@ importers:
       '@fontsource/noto-sans':
         specifier: ^5.3.0
         version: 5.3.0
+      '@fontsource/noto-sans-kr':
+        specifier: ^5.3.0
+        version: 5.3.0
       '@fontsource/public-sans':
         specifier: ^5.3.0
         version: 5.3.0
@@ -74,6 +80,9 @@ importers:
       '@lezer/markdown':
         specifier: ^1.7.2
         version: 1.7.2
+      '@phosphor-icons/react':
+        specifier: ^2.1.10
+        version: 2.1.10(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       '@react-three/drei':
         specifier: ^10.7.8
         version: 10.7.8(@react-three/fiber@9.7.0(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(three@0.185.1))(@types/react@19.2.18)(@types/three@0.185.4)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(three@0.185.1)
@@ -110,9 +119,6 @@ importers:
       d3-force:
         specifier: ^3.0.0
         version: 3.0.0
-      lucide-react:
-        specifier: ^1.37.0
-        version: 1.37.0(react@19.2.8)
       react:
         specifier: ^19.1.0
         version: 19.2.8
@@ -451,6 +457,9 @@ packages:
     cpu: [x64]
     os: [win32]
 
+  '@fontsource/amarante@5.3.0':
+    resolution: {integrity: sha512-7IIS6QDzcWSYKoYa0D5oDtwSZlzlK4kWgCMTrE8WtyB0X1a90Pwpvd0x9CTjRInm6OLsF25zToLFFBRuzerqNA==}
+
   '@fontsource/atkinson-hyperlegible@5.3.0':
     resolution: {integrity: sha512-Sp8Ve8+rQmENY2Lv02VH7sLpntzTTvnncnJMTbRE7DX6TLxGraN4ykZfzaUWIoCFmaomwkvNiqmlPkrKBuDoSA==}
 
@@ -471,6 +480,9 @@ packages:
 
   '@fontsource/newsreader@5.3.0':
     resolution: {integrity: sha512-AFR6ZKY89GNL+9qBI2P2+66NhD5bhOj/v6fsLnFYLM4E0JnMB1yKb+Ro8cA64i1hwAWoBfTq5CHJGWH1toLDkw==}
+
+  '@fontsource/noto-sans-kr@5.3.0':
+    resolution: {integrity: sha512-/JnpTjaCOXW7xUoqOyCVYSr05VOkDy5Yla9O+WAEiS7u+yYLsmHoqj6v1W0bf91G8G3XA2+NnRS3CX2Tf/FVZg==}
 
   '@fontsource/noto-sans@5.3.0':
     resolution: {integrity: sha512-fBCog2PY7DiVVTEEqtI/Qdinx/knobHYfoGpjFXdfBX5RoJaBp1Prw2G75p0OIsdlMZg3cLo0c+YbIUYOxnQJw==}
@@ -552,6 +564,13 @@ packages:
   '@nodelib/fs.walk@1.2.8':
     resolution: {integrity: sha512-oGB+UxlgWcgQkgwo8GcEGwemoTFt3FIO9ababBmaGwXIoBKZ+GTy0pP185beGg7Llih/NSHSV2XAs1lnznocSg==}
     engines: {node: '>= 8'}
+
+  '@phosphor-icons/react@2.1.10':
+    resolution: {integrity: sha512-vt8Tvq8GLjheAZZYa+YG/pW7HDbov8El/MANW8pOAz4eGxrwhnbfrQZq0Cp4q8zBEu8NIhHdnr+r8thnfRSNYA==}
+    engines: {node: '>=10'}
+    peerDependencies:
+      react: '>= 16.8'
+      react-dom: '>= 16.8'
 
   '@react-three/drei@10.7.8':
     resolution: {integrity: sha512-rJXyuzLm2Xq0kafHuR47ajDGbOe/pEhzIr4m8E8zwzQs0iNjloFDqBwRhrXmP/w+onLeYyN3EYPFW/cwWK/4yA==}
@@ -1151,11 +1170,6 @@ packages:
 
   lru-cache@5.1.1:
     resolution: {integrity: sha512-KpNARQA3Iwv+jTA0utUVVbrh+Jlrr1Fv0e56GGzAFOXN7dk/FviaDW8LHmK52DlcH4WP2n6gI8vN1aesBFgo9w==}
-
-  lucide-react@1.37.0:
-    resolution: {integrity: sha512-LPsB4rD1TD6wZu1djKOf9vUnS1jTNaHbolXebXDgiTdb6jeA1agIJhJsIybCmjKmQClcOaal1o1OaiYahEftyQ==}
-    peerDependencies:
-      react: ^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0
 
   maath@0.10.8:
     resolution: {integrity: sha512-tRvbDF0Pgqz+9XUa4jjfgAQ8/aPKmQdWXilFu2tMy4GWj4NOsx99HlULO4IeREfbO3a0sA145DZYyvXPkybm0g==}
@@ -1835,6 +1849,8 @@ snapshots:
   '@esbuild/win32-x64@0.28.2':
     optional: true
 
+  '@fontsource/amarante@5.3.0': {}
+
   '@fontsource/atkinson-hyperlegible@5.3.0': {}
 
   '@fontsource/ibm-plex-mono@5.3.0': {}
@@ -1848,6 +1864,8 @@ snapshots:
   '@fontsource/literata@5.3.0': {}
 
   '@fontsource/newsreader@5.3.0': {}
+
+  '@fontsource/noto-sans-kr@5.3.0': {}
 
   '@fontsource/noto-sans@5.3.0': {}
 
@@ -1934,6 +1952,11 @@ snapshots:
     dependencies:
       '@nodelib/fs.scandir': 2.1.5
       fastq: 1.20.1
+
+  '@phosphor-icons/react@2.1.10(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
+    dependencies:
+      react: 19.2.8
+      react-dom: 19.2.8(react@19.2.8)
 
   '@react-three/drei@10.7.8(@react-three/fiber@9.7.0(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(three@0.185.1))(@types/react@19.2.18)(@types/three@0.185.4)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(three@0.185.1)':
     dependencies:
@@ -2468,10 +2491,6 @@ snapshots:
   lru-cache@5.1.1:
     dependencies:
       yallist: 3.1.1
-
-  lucide-react@1.37.0(react@19.2.8):
-    dependencies:
-      react: 19.2.8
 
   maath@0.10.8(@types/three@0.185.4)(three@0.185.1):
     dependencies:

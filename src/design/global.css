@@ -16,6 +16,11 @@
  * doesn't clash with the sans body text the way an unrelated mono would. */
 @import '@fontsource/ibm-plex-mono/latin-400.css';
 
+/* Amarante — decorative wordmark font for the "[auxin]" label in the macOS
+ * window header only (TitleBar.tsx), not a body-text option. Regular weight
+ * only; that's all Google Fonts ships for this family. */
+@import '@fontsource/amarante/latin-400.css';
+
 /* Candidate body fonts for the settings picker (design/fontOptions.ts) —
  * all self-hosted the same way as IBM Plex above, `latin-*` only, and all
  * loaded eagerly (not lazily per-selection) since the font-family CSS var
@@ -55,6 +60,14 @@
 @import '@fontsource/spectral/latin-400-italic.css';
 @import '@fontsource/spectral/latin-700.css';
 
+/* Noto Sans KR — Hangul fallback appended to every option above
+ * (design/fontOptions.ts), since none of those faces ship Korean glyphs.
+ * `korean-*` subset only, no `latin-*` (the primary font already covers
+ * Latin) and no italic (upstream ships none, same as Lexend above — falls
+ * back to faux-italic if Korean text needs it). */
+@import '@fontsource/noto-sans-kr/korean-400.css';
+@import '@fontsource/noto-sans-kr/korean-700.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -68,6 +81,11 @@ body,
 #root {
   height: 100%;
   margin: 0;
+  /* The outer page must never scroll on its own — every scrollable region
+     (editor, tab strip, sidebar lists) already manages its own overflow.
+     Without this, content even a sub-pixel taller than the viewport makes
+     the whole window scrollable, and scrolling it visibly twitches the UI. */
+  overflow: hidden;
 }
 
 body {

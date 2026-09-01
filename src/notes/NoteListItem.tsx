@@ -46,10 +46,8 @@ export function NoteListItem({
       onClick={onSelect}
       onDoubleClick={onStartRename}
       title={note.needsAttention ? 'frontmatter could not be parsed — needs attention' : undefined}
-      className={`flex w-full items-center gap-1 truncate border-l-2 px-1 text-left transition-colors duration-panel ease-panel ${
-        isActive
-          ? 'border-accent-link text-fg-prominent'
-          : 'border-transparent text-fg-muted hover:text-fg-prominent'
+      className={`flex w-full items-center gap-1 truncate px-1 text-left transition-colors duration-panel ease-panel ${
+        isActive ? 'bg-accent-link text-black' : 'text-fg-muted hover:text-fg-prominent'
       }`}
       style={{ fontSize: '0.85rem' }}
     >

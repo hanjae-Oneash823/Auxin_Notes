@@ -11,73 +11,77 @@ export interface FontFamilyOption {
 }
 
 const MONO_FALLBACK = "'IBM Plex Mono', ui-monospace, monospace";
+// Every option below is a Latin-only face — none ship Hangul glyphs — so
+// this goes right after each primary font name in the stack (see
+// global.css for the actual @font-face imports, `korean-*` subset only).
+const KOREAN_FALLBACK = "'Noto Sans KR'";
 
 export const FONT_FAMILY_OPTIONS: FontFamilyOption[] = [
   {
     id: 'ibm-plex',
     label: 'IBM Plex Sans',
-    fontFamily: "'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif",
+    fontFamily: `'IBM Plex Sans', ${KOREAN_FALLBACK}, ui-sans-serif, system-ui, sans-serif`,
     monoFontFamily: MONO_FALLBACK,
   },
   // Candidates below — all picked for legibility specifically, not looks.
   {
     id: 'atkinson-hyperlegible',
     label: 'Atkinson Hyperlegible',
-    fontFamily: "'Atkinson Hyperlegible', ui-sans-serif, system-ui, sans-serif",
+    fontFamily: `'Atkinson Hyperlegible', ${KOREAN_FALLBACK}, ui-sans-serif, system-ui, sans-serif`,
     monoFontFamily: MONO_FALLBACK,
   },
   {
     id: 'lexend',
     label: 'Lexend',
-    fontFamily: "'Lexend', ui-sans-serif, system-ui, sans-serif",
+    fontFamily: `'Lexend', ${KOREAN_FALLBACK}, ui-sans-serif, system-ui, sans-serif`,
     monoFontFamily: MONO_FALLBACK,
   },
   {
     id: 'inter',
     label: 'Inter',
-    fontFamily: "'Inter', ui-sans-serif, system-ui, sans-serif",
+    fontFamily: `'Inter', ${KOREAN_FALLBACK}, ui-sans-serif, system-ui, sans-serif`,
     monoFontFamily: MONO_FALLBACK,
   },
   {
     id: 'source-sans-3',
     label: 'Source Sans 3',
-    fontFamily: "'Source Sans 3', ui-sans-serif, system-ui, sans-serif",
+    fontFamily: `'Source Sans 3', ${KOREAN_FALLBACK}, ui-sans-serif, system-ui, sans-serif`,
     monoFontFamily: MONO_FALLBACK,
   },
   {
     id: 'public-sans',
     label: 'Public Sans',
-    fontFamily: "'Public Sans', ui-sans-serif, system-ui, sans-serif",
+    fontFamily: `'Public Sans', ${KOREAN_FALLBACK}, ui-sans-serif, system-ui, sans-serif`,
     monoFontFamily: MONO_FALLBACK,
   },
   {
     id: 'work-sans',
     label: 'Work Sans',
-    fontFamily: "'Work Sans', ui-sans-serif, system-ui, sans-serif",
+    fontFamily: `'Work Sans', ${KOREAN_FALLBACK}, ui-sans-serif, system-ui, sans-serif`,
     monoFontFamily: MONO_FALLBACK,
   },
   {
     id: 'noto-sans',
     label: 'Noto Sans',
-    fontFamily: "'Noto Sans', ui-sans-serif, system-ui, sans-serif",
+    fontFamily: `'Noto Sans', ${KOREAN_FALLBACK}, ui-sans-serif, system-ui, sans-serif`,
     monoFontFamily: MONO_FALLBACK,
   },
   {
     id: 'literata',
     label: 'Literata',
-    fontFamily: "'Literata', ui-serif, Georgia, serif",
+    fontFamily: `'Literata', ${KOREAN_FALLBACK}, ui-serif, Georgia, serif`,
     monoFontFamily: MONO_FALLBACK,
   },
   {
     id: 'newsreader',
     label: 'Newsreader',
-    fontFamily: "'Newsreader', ui-serif, Georgia, serif",
+    fontFamily: `'Newsreader', ${KOREAN_FALLBACK}, ui-serif, Georgia, serif`,
     monoFontFamily: MONO_FALLBACK,
   },
   {
     id: 'spectral',
     label: 'Spectral',
-    fontFamily: "'Spectral', ui-serif, Georgia, serif",
+    fontFamily: `'Spectral', ${KOREAN_FALLBACK}, ui-serif, Georgia, serif`,
     monoFontFamily: MONO_FALLBACK,
   },
 ];

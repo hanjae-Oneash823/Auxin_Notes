@@ -54,6 +54,30 @@ pub fn ensure_dir(path: String) -> Result<(), String> {
     fs::create_dir_all(&path).map_err(|e| e.to_string())
 }
 
+/// Moves (or renames) a folder — a single `fs::rename` of the directory
+/// itself, so everything inside it moves along for free with no per-file
+/// work. Same collision guard as `rename_note`: refuses to clobber an
+/// existing entry at `new_path` rather than silently merging into it.
+#[tauri::command]
+pub fn move_folder(old_path: String, new_path: String) -> Result<(), String> {
+    let target = PathBuf::from(&new_path);
+    if target.exists() {
+        return Err(format!("\"{new_path}\" already exists"));
+    }
+    if let Some(parent) = target.parent() {
+        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    fs::rename(&old_path, &target).map_err(|e| e.to_string())
+}
+
+/// Recursively deletes a folder and everything inside it. Irreversible —
+/// the frontend confirms with the user before ever calling this; nothing
+/// here holds it back once invoked.
+#[tauri::command]
+pub fn delete_folder(path: String) -> Result<(), String> {
+    fs::remove_dir_all(&path).map_err(|e| e.to_string())
+}
+
 const ATTACHMENTS_DIR_NAME: &str = "attachments";
 
 fn attachments_dir(vault_root: &str) -> PathBuf {

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { BookOpen, Orbit, PenLine } from 'lucide-react';
+import { BookOpen, PencilLine } from '@phosphor-icons/react';
 import { SettingsPanel } from '../app/settings/SettingsPanel';
 
 interface StatusBarProps {
@@ -8,8 +8,6 @@ interface StatusBarProps {
   unresolvedCount: number;
   isReadingMode: boolean;
   onToggleReadingMode: () => void;
-  isGraphMode: boolean;
-  onToggleGraphMode: () => void;
 }
 
 /** Terminal-prompt-style status line pinned to the bottom of the window —
@@ -21,15 +19,13 @@ export function StatusBar({
   unresolvedCount,
   isReadingMode,
   onToggleReadingMode,
-  isGraphMode,
-  onToggleGraphMode,
 }: StatusBarProps) {
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   return (
     <footer
-      className="relative flex shrink-0 items-center gap-4 border-t border-border px-3 py-1 text-fg-faint"
-      style={{ fontSize: '0.7rem' }}
+      className="relative flex shrink-0 items-center gap-4 border-t-[1.5px] border-t-border-strong px-3 py-2 text-fg-faint"
+      style={{ fontSize: '0.9rem' }}
     >
       <span className="truncate">[vault: {vaultRoot}]</span>
       <span>
@@ -42,21 +38,11 @@ export function StatusBar({
       )}
       <button
         type="button"
-        onClick={onToggleGraphMode}
-        title={isGraphMode ? 'graph view — click to return to the editor' : 'click to open the 3D graph view'}
-        className={`ml-auto flex items-center transition-colors duration-panel ease-panel hover:text-fg-prominent ${
-          isGraphMode ? 'text-fg-prominent' : 'text-fg-faint'
-        }`}
-      >
-        <Orbit size={13} strokeWidth={1.75} />
-      </button>
-      <button
-        type="button"
         onClick={onToggleReadingMode}
         title={isReadingMode ? 'reading mode — click to switch to writing' : 'writing mode — click to switch to reading'}
-        className="flex items-center text-fg-faint transition-colors duration-panel ease-panel hover:text-fg-prominent"
+        className="ml-auto flex items-center text-fg-faint transition-colors duration-panel ease-panel hover:text-fg-prominent"
       >
-        {isReadingMode ? <BookOpen size={13} strokeWidth={1.75} /> : <PenLine size={13} strokeWidth={1.75} />}
+        {isReadingMode ? <BookOpen size={17} weight="regular" /> : <PencilLine size={17} weight="regular" />}
       </button>
       <button
         type="button"

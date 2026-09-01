@@ -17,6 +17,10 @@ pub struct AppConfig {
     pub font_family_id: Option<String>,
     #[serde(default)]
     pub font_size_id: Option<String>,
+    #[serde(default)]
+    pub sidebar_width_left: Option<f64>,
+    #[serde(default)]
+    pub sidebar_width_right: Option<f64>,
 }
 
 fn config_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {

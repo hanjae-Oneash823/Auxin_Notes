@@ -28,6 +28,7 @@ export default {
       fontFamily: {
         sans: ['var(--font-family)'],
         mono: ['var(--font-family-mono)'],
+        brand: ['var(--font-family-brand)'],
       },
       fontSize: {
         base: 'var(--font-size-base)',
@@ -35,6 +36,9 @@ export default {
       letterSpacing: {
         label: 'var(--letter-spacing-label)',
         menu: 'var(--letter-spacing-menu)',
+      },
+      width: {
+        rail: 'var(--width-rail)',
       },
       transitionTimingFunction: {
         panel: 'var(--ease-panel)',

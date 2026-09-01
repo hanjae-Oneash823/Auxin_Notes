@@ -7,6 +7,8 @@ export interface AppConfig {
   recent_vaults: string[];
   font_family_id: string | null;
   font_size_id: string | null;
+  sidebar_width_left: number | null;
+  sidebar_width_right: number | null;
 }
 
 export async function getAppConfig(): Promise<AppConfig> {

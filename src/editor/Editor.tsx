@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { EditorState } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
 import { invoke } from '@tauri-apps/api/core';
-import { ImagePlus } from 'lucide-react';
+import { Image } from '@phosphor-icons/react';
 import { markdownSetup } from './extensions/markdownSetup';
 import { pickAndInsertImage } from './extensions/imageInsert';
 import { refreshLinkChipsEffect } from './extensions/linkChipWidget';
@@ -158,7 +158,7 @@ export function Editor({ path, vaultRoot, onNavigate, onRenameTitle, readOnly }:
             title="Insert image"
             className="flex items-center text-fg-faint transition-colors duration-panel ease-panel hover:text-fg-prominent"
           >
-            <ImagePlus size={16} strokeWidth={1.75} />
+            <Image size={16} weight="regular" />
           </button>
         )}
       </div>
