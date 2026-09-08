@@ -16,6 +16,23 @@
  * doesn't clash with the sans body text the way an unrelated mono would. */
 @import '@fontsource/ibm-plex-mono/latin-400.css';
 
+/* Cascadia Code — terminal only (TerminalPanel.tsx), tried ahead of
+ * JetBrains Mono specifically for CLI splash art (e.g. Claude Code's own
+ * startup logo) that leans on block/box-drawing glyphs; Microsoft's
+ * terminal font is where that corner of Unicode got the most direct
+ * design attention. Falls back to JetBrains Mono below for everything
+ * else. */
+@import '@fontsource/cascadia-code/latin-400.css';
+@import '@fontsource/cascadia-code/latin-700.css';
+
+/* JetBrains Mono — terminal only (TerminalPanel.tsx). Chosen over IBM Plex
+ * Mono there specifically for legibility: a taller x-height and glyphs
+ * deliberately disambiguated (dotted zero vs. `O`, distinct `1`/`l`/`I`),
+ * which matters more reading raw shell output than it does in code fences.
+ * 700 weight too — xterm renders ANSI-bold text using it. */
+@import '@fontsource/jetbrains-mono/latin-400.css';
+@import '@fontsource/jetbrains-mono/latin-700.css';
+
 /* Amarante — decorative wordmark font for the "[auxin]" label in the macOS
  * window header only (TitleBar.tsx), not a body-text option. Regular weight
  * only; that's all Google Fonts ships for this family. */
@@ -116,7 +133,7 @@ body {
   border-radius: var(--radius-none);
 }
 ::-webkit-scrollbar-thumb:hover {
-  background-color: rgba(255, 255, 255, var(--fg-opacity-muted));
+  background-color: var(--fg-muted);
 }
 ::-webkit-scrollbar-corner {
   background: var(--color-bg);

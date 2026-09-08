@@ -3,11 +3,12 @@ mod watcher;
 
 use commands::app_config::{get_app_config, set_app_config};
 use commands::fs_ops::{
-    copy_image_file, delete_folder, delete_note, ensure_dir, move_folder, read_image_data_url, read_note,
+    allow_vault_asset_access, copy_image_file, delete_folder, delete_note, ensure_dir, move_folder, read_note,
     rename_note, save_image_data, write_note,
 };
+use commands::terminal::{terminal_kill, terminal_resize, terminal_spawn, terminal_write, TerminalState};
 use commands::vault_scan::{list_vault_files, list_vault_folders};
-use tauri::{WebviewUrl, WebviewWindowBuilder};
+use tauri::{Manager, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 use watcher::{watch_vault, WatcherState};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -20,6 +21,7 @@ pub fn run() {
         .plugin(tauri_plugin_single_instance::init(|_app, _args, _cwd| {}))
         .plugin(tauri_plugin_os::init())
         .manage(WatcherState::default())
+        .manage(TerminalState::default())
         .setup(|app| {
             let win_builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
                 .title("Auxin")
@@ -37,7 +39,17 @@ pub fn run() {
                 .hidden_title(true)
                 .traffic_light_position(tauri::LogicalPosition::new(12.0, 16.0));
 
-            win_builder.build()?;
+            let window = win_builder.build()?;
+
+            // A shell left running after the window closes would otherwise
+            // linger as an orphaned background process.
+            let app_handle = app.handle().clone();
+            window.on_window_event(move |event| {
+                if let WindowEvent::CloseRequested { .. } = event {
+                    let _ = terminal_kill(app_handle.state::<TerminalState>());
+                }
+            });
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -48,7 +60,7 @@ pub fn run() {
             delete_folder,
             ensure_dir,
             move_folder,
-            read_image_data_url,
+            allow_vault_asset_access,
             save_image_data,
             copy_image_file,
             list_vault_files,
@@ -56,6 +68,10 @@ pub fn run() {
             watch_vault,
             get_app_config,
             set_app_config,
+            terminal_spawn,
+            terminal_write,
+            terminal_resize,
+            terminal_kill,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

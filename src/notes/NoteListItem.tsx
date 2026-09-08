@@ -45,13 +45,11 @@ export function NoteListItem({
       type="button"
       onClick={onSelect}
       onDoubleClick={onStartRename}
-      title={note.needsAttention ? 'frontmatter could not be parsed — needs attention' : undefined}
       className={`flex w-full items-center gap-1 truncate px-1 text-left transition-colors duration-panel ease-panel ${
         isActive ? 'bg-accent-link text-black' : 'text-fg-muted hover:text-fg-prominent'
       }`}
       style={{ fontSize: '0.85rem' }}
     >
-      {note.needsAttention && <span className="text-accent-link-broken">•</span>}
       <span className="truncate">{note.title}</span>
     </button>
   );

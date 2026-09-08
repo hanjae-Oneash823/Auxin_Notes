@@ -11,6 +11,7 @@ import {
 } from 'd3-force';
 import { getDb } from '../db/client';
 import { getGraphEdges, getGraphNodes, getStoredPositions, savePositions } from '../db/queries/graph';
+import { getHubGraphEdges } from '../db/queries/hub';
 import { useVaultStore } from '../vault/vaultStore';
 
 export interface GraphLayoutNode {
@@ -58,12 +59,18 @@ export function useGraphLayout(vaultRoot: string) {
     void (async () => {
       setIsLoading(true);
       const db = await getDb(vaultRoot);
-      const [graphNodes, graphEdges, stored] = await Promise.all([
+      const [graphNodes, linkEdges, hubEdges, stored] = await Promise.all([
         getGraphNodes(db),
         getGraphEdges(db),
+        getHubGraphEdges(db),
         getStoredPositions(db),
       ]);
       if (cancelled) return;
+
+      // Hub edges are synthetic (a hub's scope, not a literal [[wikilink]] in
+      // its body) — merged in here so a hub note pulls its scoped notes
+      // toward it in the force layout the same way a real link would.
+      const graphEdges = [...linkEdges, ...hubEdges];
 
       if (graphNodes.length === 0) {
         setNodes([]);

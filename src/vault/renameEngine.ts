@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { getDb } from '../db/client';
 import { getEditorView } from '../editor/editorRegistry';
-import { syncFile } from './syncEngine';
+import { syncFile, syncFileAsRename } from './syncEngine';
 
 export interface RenameFailure {
   path: string;
@@ -91,9 +91,10 @@ export async function renameNote(
   }
 
   await invoke('rename_note', { oldPath: oldAbsolutePath, newPath: newAbsolutePath });
-  // Same id at a new path: syncFile records the old title into note_aliases
-  // and updates notes.path/title (see upsertParsedNote in syncEngine.ts).
-  await syncFile(vaultRoot, newAbsolutePath);
+  // The id is already known — no need for resolveNoteId's hash-matching.
+  // syncFileAsRename records the old title into note_aliases and updates
+  // notes.path/title (see upsertParsedNote in syncEngine.ts).
+  await syncFileAsRename(vaultRoot, newAbsolutePath, noteId);
 
   const { updatedCount, failures } = await relinkAcrossFiles(
     vaultRoot,

@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { BookOpen, PencilLine } from '@phosphor-icons/react';
+import { BookOpen, Moon, PencilLine, Sun } from '@phosphor-icons/react';
 import { SettingsPanel } from '../app/settings/SettingsPanel';
+import { useSettingsStore } from '../app/settings/settingsStore';
 
 interface StatusBarProps {
   vaultRoot: string;
@@ -21,10 +22,12 @@ export function StatusBar({
   onToggleReadingMode,
 }: StatusBarProps) {
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const { themeId, setTheme } = useSettingsStore();
+  const isLight = themeId === 'light';
 
   return (
     <footer
-      className="relative flex shrink-0 items-center gap-4 border-t-[1.5px] border-t-border-strong px-3 py-2 text-fg-faint"
+      className="relative flex shrink-0 items-center gap-4 border-t-[1.5px] border-t-border-strong bg-bg-footer px-3 py-1.5 text-fg-footer"
       style={{ fontSize: '0.9rem' }}
     >
       <span className="truncate">[vault: {vaultRoot}]</span>
@@ -40,14 +43,22 @@ export function StatusBar({
         type="button"
         onClick={onToggleReadingMode}
         title={isReadingMode ? 'reading mode — click to switch to writing' : 'writing mode — click to switch to reading'}
-        className="ml-auto flex items-center text-fg-faint transition-colors duration-panel ease-panel hover:text-fg-prominent"
+        className="ml-auto flex items-center text-fg-footer transition-colors duration-panel ease-panel hover:text-fg-footer-prominent"
       >
         {isReadingMode ? <BookOpen size={17} weight="regular" /> : <PencilLine size={17} weight="regular" />}
       </button>
       <button
         type="button"
+        onClick={() => void setTheme(isLight ? 'dark' : 'light')}
+        title={isLight ? 'light mode — click to switch to dark' : 'dark mode — click to switch to light'}
+        className="flex items-center text-fg-footer transition-colors duration-panel ease-panel hover:text-fg-footer-prominent"
+      >
+        {isLight ? <Sun size={17} weight="regular" /> : <Moon size={17} weight="regular" />}
+      </button>
+      <button
+        type="button"
         onClick={() => setSettingsOpen((open) => !open)}
-        className="text-fg-faint transition-colors duration-panel ease-panel hover:text-fg-prominent"
+        className="text-fg-footer transition-colors duration-panel ease-panel hover:text-fg-footer-prominent"
       >
         [settings]
       </button>

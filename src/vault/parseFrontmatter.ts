@@ -1,87 +1,48 @@
-import type { NoteFrontmatter } from './types';
+export interface LegacyFrontmatter {
+  id?: string;
+  created?: string;
+}
 
-export interface FrontmatterParseResult {
-  frontmatter: Partial<NoteFrontmatter>;
+export interface LegacyFrontmatterResult {
+  legacy: LegacyFrontmatter;
   body: string;
-  /** A `---` frontmatter block was present but couldn't be parsed cleanly. */
-  malformed: boolean;
+  /** A `---` block was present (regardless of whether id/created were
+   *  recoverable from it) — the caller uses this to decide whether the
+   *  block needs stripping from disk. */
+  found: boolean;
 }
 
 const FRONTMATTER_PATTERN = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/;
 
 /**
- * Hand-rolled parser for Auxin's narrow, well-known frontmatter shape
- * (id/created/modified/tags) — deliberately not a full YAML parser. Never
- * throws: malformed input degrades to `malformed: true` with whatever fields
- * were recoverable, so one bad file can't halt reconciliation.
+ * One-shot migration helper: every note written before frontmatter was
+ * dropped carries a `---\nid: ...\ncreated: ...\n...\n---` block. This
+ * extracts just `id`/`created` (the two fields identity resolution needs to
+ * preserve) from that legacy block and returns the body with it stripped.
+ * Not a general YAML parser — deliberately narrow to this one job, kept
+ * indefinitely since a `raw.startsWith('---')` check stays ~free once every
+ * note in a vault has migrated.
  */
-export function parseFrontmatter(raw: string): FrontmatterParseResult {
+export function extractLegacyFrontmatter(raw: string): LegacyFrontmatterResult {
   const match = raw.match(FRONTMATTER_PATTERN);
   if (!match) {
-    return { frontmatter: {}, body: raw, malformed: false };
+    return { legacy: {}, body: raw, found: false };
   }
 
   const [, block, body] = match;
-  const frontmatter: Partial<NoteFrontmatter> = {};
-  let malformed = false;
+  const legacy: LegacyFrontmatter = {};
 
-  const lines = block.split(/\r?\n/);
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
+  for (const line of block.split(/\r?\n/)) {
     const keyMatch = line.match(/^(\w+):\s*(.*)$/);
     if (!keyMatch) continue;
 
     const [, key, rawValue] = keyMatch;
-    try {
-      if (key === 'id' || key === 'created' || key === 'modified') {
-        frontmatter[key] = stripQuotes(rawValue.trim());
-      } else if (key === 'tags') {
-        const { tags, consumedLines } = parseTags(rawValue, lines, i + 1);
-        frontmatter.tags = tags;
-        i += consumedLines;
-      }
-    } catch {
-      malformed = true;
+    if (key === 'id' || key === 'created') {
+      legacy[key] = stripQuotes(rawValue.trim());
     }
   }
 
-  return { frontmatter, body, malformed };
-}
-
-function parseTags(
-  inlineValue: string,
-  lines: string[],
-  startIndex: number,
-): { tags: string[]; consumedLines: number } {
-  const trimmed = inlineValue.trim();
-
-  // Flow syntax: tags: [research, thesis/chapter1]
-  if (trimmed.startsWith('[')) {
-    const inner = trimmed.replace(/^\[/, '').replace(/\]$/, '');
-    const tags = inner
-      .split(',')
-      .map((tag) => stripQuotes(tag.trim()))
-      .filter(Boolean);
-    return { tags, consumedLines: 0 };
-  }
-
-  // Block list syntax:
-  // tags:
-  //   - research
-  //   - thesis/chapter1
-  if (trimmed === '') {
-    const tags: string[] = [];
-    let consumed = 0;
-    for (let i = startIndex; i < lines.length; i++) {
-      const itemMatch = lines[i].match(/^\s*-\s*(.+)$/);
-      if (!itemMatch) break;
-      tags.push(stripQuotes(itemMatch[1].trim()));
-      consumed++;
-    }
-    return { tags, consumedLines: consumed };
-  }
-
-  return { tags: [], consumedLines: 0 };
+  return { legacy, body, found: true };
 }
 
 function stripQuotes(value: string): string {

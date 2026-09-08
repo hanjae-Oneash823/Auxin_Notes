@@ -1,14 +1,15 @@
 import { useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { CaretRight, Folder, FolderOpen } from '@phosphor-icons/react';
+import { motion } from 'framer-motion';
+import { CaretRight, Folder, FolderOpen, SquaresFour } from '@phosphor-icons/react';
 import { NoteListItem } from './NoteListItem';
 import type { NoteSummary } from '../db/queries/notes';
-import { buildFolderTree, flattenTree, type TreeRow } from '../vault/folderTree';
+import { buildFolderTree, flattenTree, type FolderNode, type TreeRow } from '../vault/folderTree';
 import { ContextMenu } from '../layout/ContextMenu';
 
 type RowContextMenu =
   | { kind: 'note'; note: NoteSummary; x: number; y: number }
-  | { kind: 'folder'; path: string; x: number; y: number }
+  | { kind: 'folder'; node: FolderNode; x: number; y: number }
   | { kind: 'empty'; x: number; y: number };
 
 const ROW_HEIGHT_PX = 26;
@@ -20,6 +21,14 @@ const DRAG_THRESHOLD_PX = 4;
 /** Sentinel `data-drop-id` for the vault root — an empty string would be
  *  indistinguishable from "no drop-id attribute found". */
 const ROOT_DROP_ID = '__root__';
+
+// Matches --duration-panel / --ease-panel (tokens.css) — the row grow/shrink
+// animation should feel like the rest of the app's transitions, not a
+// one-off timing. Kept as a JS constant (framer-motion doesn't read CSS
+// custom properties) and mirrored in ROW_ANIM_MS for the setTimeout that
+// finalizes a collapse once its shrink animation has actually finished.
+const ROW_ANIM = { duration: 0.3, ease: [0.25, 0.46, 0.45, 0.94] as const };
+const ROW_ANIM_MS = 300;
 
 type DragItem = { kind: 'note'; note: NoteSummary } | { kind: 'folder'; path: string };
 
@@ -45,10 +54,38 @@ interface FolderTreeProps {
   onRevealNote: (note: NoteSummary) => void;
   onRevealFolder: (folderPath: string) => void;
   onNewNoteInFolder: (folderPath: string) => void;
+  onNewHubInFolder: (folderPath: string) => void;
   /** Right-clicking empty tree space (below/between rows) offers this —
    *  same root-level "start naming a new folder" affordance as the
    *  sidebar's own `[+] folder` button. */
   onNewFolderAtRoot: () => void;
+}
+
+/** Stable per-row identity, independent of its position in the flattened
+ *  list — used both as the virtualizer's `getItemKey` (so a row keeps its
+ *  own React/DOM identity as sibling rows appear and disappear around it,
+ *  rather than index-based keys causing an unrelated row to silently
+ *  inherit an animation mid-flight) and to look a row up in
+ *  `enteringKeys`. */
+function rowKey(row: TreeRow): string {
+  return row.kind === 'folder' ? `folder:${row.node.path}` : `note:${row.note.id}`;
+}
+
+/** A row's own containing-folder path (itself, for a folder row; its parent,
+ *  for a note row) — used to test whether a row lives inside a folder that's
+ *  currently mid-close-animation. */
+function rowOwnPath(row: TreeRow): string {
+  return row.kind === 'folder' ? row.node.path : row.folderPath;
+}
+
+function isDescendantOrSelf(path: string, ancestor: string): boolean {
+  return path === ancestor || path.startsWith(`${ancestor}/`);
+}
+
+function withoutPath(paths: Set<string>, path: string): Set<string> {
+  const next = new Set(paths);
+  next.delete(path);
+  return next;
 }
 
 /**
@@ -64,6 +101,20 @@ interface FolderTreeProps {
  * live-reorder animation here: the pointer just resolves to a single drop
  * target (a folder row, or the root) via `elementFromPoint`, which is
  * highlighted, and the move commits on release.
+ *
+ * Expand/collapse animation: react-virtual positions every row by a fixed
+ * `estimateSize` slot (translateY math from index × row height), so rows
+ * below a toggled folder can't be smoothly pushed down/up the way a plain
+ * (non-virtualized) accordion would — the outer virtualized slot for every
+ * row snaps to its final position/count the instant `collapsedPaths`
+ * changes. What *can* animate cleanly within an already-correctly-sized
+ * slot is that row's own content growing/shrinking in place, so that's what
+ * this does: an inner `motion.div` per row animates height+opacity from 0 on
+ * the frame a folder's children are first revealed (`enteringKeys`, computed
+ * as the exact row-key delta a toggle is about to reveal), and collapsing a
+ * folder defers actually removing its children from `collapsedPaths` — kept
+ * in `closingPaths` instead — until their shrink animation has finished
+ * playing, instead of yanking them out of the tree mid-animation.
  */
 export function FolderTree({
   notes,
@@ -84,9 +135,12 @@ export function FolderTree({
   onRevealNote,
   onRevealFolder,
   onNewNoteInFolder,
+  onNewHubInFolder,
   onNewFolderAtRoot,
 }: FolderTreeProps) {
   const [collapsedPaths, setCollapsedPaths] = useState<Set<string>>(new Set());
+  const [closingPaths, setClosingPaths] = useState<Set<string>>(new Set());
+  const [enteringKeys, setEnteringKeys] = useState<Set<string>>(new Set());
   const [renamingFolderPath, setRenamingFolderPath] = useState<string | null>(null);
   const [folderRenameValue, setFolderRenameValue] = useState('');
   const [draggedItem, setDraggedItem] = useState<DragItem | null>(null);
@@ -111,15 +165,61 @@ export function FolderTree({
     getScrollElement: () => scrollRef.current,
     estimateSize: () => ROW_HEIGHT_PX,
     overscan: OVERSCAN,
+    getItemKey: (index) => rowKey(rows[index]),
   });
 
   function toggleCollapsed(path: string) {
-    setCollapsedPaths((prev) => {
-      const next = new Set(prev);
-      if (next.has(path)) next.delete(path);
-      else next.add(path);
-      return next;
-    });
+    if (collapsedPaths.has(path)) {
+      // Opening — diff the about-to-be-revealed rows against the current
+      // ones so exactly the newly-appearing rows (this folder's children,
+      // and any of their own already-expanded descendants) get flagged for
+      // a grow+fade entrance; a row that's merely scrolling into the
+      // virtualized window later shouldn't replay that animation, hence
+      // clearing the flag once the animation's had time to finish.
+      const revealedKeys = flattenTree(root, withoutPath(collapsedPaths, path))
+        .map(rowKey)
+        .filter((key) => !rows.some((row) => rowKey(row) === key));
+
+      setEnteringKeys((prev) => {
+        const next = new Set(prev);
+        for (const key of revealedKeys) next.add(key);
+        return next;
+      });
+      setCollapsedPaths((prev) => withoutPath(prev, path));
+      window.setTimeout(() => {
+        setEnteringKeys((prev) => {
+          const next = new Set(prev);
+          for (const key of revealedKeys) next.delete(key);
+          return next;
+        });
+      }, ROW_ANIM_MS);
+      return;
+    }
+
+    // Closing — an instant `collapsedPaths` add would yank the children out
+    // of `rows` (and the virtualizer) before they had any chance to play a
+    // shrink-out animation, so the actual collapse is deferred until then.
+    setClosingPaths((prev) => new Set(prev).add(path));
+    window.setTimeout(() => {
+      setClosingPaths((prev) => withoutPath(prev, path));
+      setCollapsedPaths((prev) => new Set(prev).add(path));
+    }, ROW_ANIM_MS);
+  }
+
+  function isRowClosing(row: TreeRow): boolean {
+    if (closingPaths.size === 0) return false;
+    // A closing folder's own header row never animates away — only rows
+    // actually *inside* it (its own notes/subfolders, at any depth) shrink;
+    // the header stays put with just its caret/icon flipping to "closed".
+    // Without this check, `isDescendantOrSelf` below would count the row as
+    // a "descendant" of itself and shrink the header along with its
+    // contents, which is exactly the flicker being fixed here.
+    if (row.kind === 'folder' && closingPaths.has(row.node.path)) return false;
+    const path = rowOwnPath(row);
+    for (const ancestor of closingPaths) {
+      if (isDescendantOrSelf(path, ancestor)) return true;
+    }
+    return false;
   }
 
   function startFolderRename(node: { path: string; name: string }) {
@@ -221,7 +321,7 @@ export function FolderTree({
 
     if (row.kind === 'folder') {
       const { node } = row;
-      const isCollapsed = collapsedPaths.has(node.path);
+      const isCollapsed = collapsedPaths.has(node.path) || closingPaths.has(node.path);
       const isDragging = draggedItem?.kind === 'folder' && draggedItem.path === node.path;
       const isDropTarget = dropTargetId === node.path && !isDragging;
 
@@ -251,7 +351,7 @@ export function FolderTree({
           onContextMenu={(event) => {
             event.preventDefault();
             event.stopPropagation();
-            setRowContextMenu({ kind: 'folder', path: node.path, x: event.clientX, y: event.clientY });
+            setRowContextMenu({ kind: 'folder', node, x: event.clientX, y: event.clientY });
           }}
           style={{ paddingLeft: indent, fontSize: '0.85rem' }}
           className={`flex w-full cursor-pointer select-none items-center gap-1 truncate border px-1 text-left transition-colors duration-panel ease-panel ${
@@ -272,10 +372,50 @@ export function FolderTree({
           )}
           <span className="flex-1 truncate">[{node.name}]</span>
           {node.noteCount > 0 && (
-            <span className="shrink-0 text-fg-faint" style={{ fontSize: '0.7rem' }}>
+            <span
+              className="mr-1.5 flex h-4 w-4 shrink-0 items-center justify-center bg-accent-tag text-bg"
+              style={{ fontSize: '0.65rem' }}
+            >
               {node.noteCount}
             </span>
           )}
+        </div>
+      );
+    }
+
+    if (row.kind === 'hub') {
+      // Deliberately distinct from both folder rows (accent-tag, `[name]`)
+      // and ordinary note rows (plain fg-muted title): a left accent stripe
+      // + dashboard icon marks this as the folder's one pinned hub, not
+      // just another note living in it. Not draggable — a hub's file
+      // location *is* the folder it represents, so moving it out would
+      // silently strip that folder of its hub.
+      return (
+        <div
+          onContextMenu={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            setRowContextMenu({ kind: 'note', note: row.note, x: event.clientX, y: event.clientY });
+          }}
+          onClickCapture={(event) => {
+            if (suppressClickRef.current) {
+              event.stopPropagation();
+              suppressClickRef.current = false;
+            }
+          }}
+          style={{ paddingLeft: indent }}
+        >
+          <button
+            type="button"
+            onClick={() => onSelect(row.note.path)}
+            className={`flex w-full items-center gap-1.5 truncate border-l-2 border-l-accent-link py-0.5 pl-1.5 text-left transition-colors duration-panel ease-panel ${
+              activePath === row.note.path ? 'bg-accent-link text-black' : 'text-accent-link hover:text-fg-prominent'
+            }`}
+            style={{ fontSize: '0.82rem' }}
+          >
+            <SquaresFour size={12} weight="bold" className="shrink-0" />
+            <span className="truncate">{row.note.title}</span>
+          </button>
         </div>
       );
     }
@@ -339,22 +479,34 @@ export function FolderTree({
           </span>
         ) : (
           <div style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
-            {virtualizer.getVirtualItems().map((virtualRow) => (
-              <div
-                key={virtualRow.key}
-                style={{
-                  position: 'absolute',
-                  top: 0,
-                  left: 0,
-                  width: '100%',
-                  height: `${virtualRow.size}px`,
-                  transform: `translateY(${virtualRow.start}px)`,
-                }}
-              >
-                {renderIndentGuides(rows[virtualRow.index].depth)}
-                {renderRow(rows[virtualRow.index])}
-              </div>
-            ))}
+            {virtualizer.getVirtualItems().map((virtualRow) => {
+              const row = rows[virtualRow.index];
+              const key = rowKey(row);
+              const closing = isRowClosing(row);
+              return (
+                <div
+                  key={virtualRow.key}
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    width: '100%',
+                    height: `${virtualRow.size}px`,
+                    transform: `translateY(${virtualRow.start}px)`,
+                  }}
+                >
+                  <motion.div
+                    initial={enteringKeys.has(key) ? { height: 0, opacity: 0 } : false}
+                    animate={{ height: closing ? 0 : ROW_HEIGHT_PX, opacity: closing ? 0 : 1 }}
+                    transition={ROW_ANIM}
+                    style={{ overflow: 'hidden' }}
+                  >
+                    {renderIndentGuides(row.depth)}
+                    {renderRow(row)}
+                  </motion.div>
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
@@ -385,17 +537,27 @@ export function FolderTree({
           y={rowContextMenu.y}
           onClose={() => setRowContextMenu(null)}
           items={[
-            { label: 'new note here', onSelect: () => onNewNoteInFolder(rowContextMenu.path) },
+            { label: 'new note here', onSelect: () => onNewNoteInFolder(rowContextMenu.node.path) },
+            // A folder either has a hub or doesn't — this swaps to "open
+            // hub" once one exists rather than offering to create a second.
+            rowContextMenu.node.hub
+              ? {
+                  label: 'open hub',
+                  onSelect: () => {
+                    if (rowContextMenu.node.hub) onSelect(rowContextMenu.node.hub.path);
+                  },
+                }
+              : { label: 'new hub here', onSelect: () => onNewHubInFolder(rowContextMenu.node.path) },
             {
               label: 'rename',
               onSelect: () =>
                 startFolderRename({
-                  path: rowContextMenu.path,
-                  name: rowContextMenu.path.split('/').pop() ?? rowContextMenu.path,
+                  path: rowContextMenu.node.path,
+                  name: rowContextMenu.node.path.split('/').pop() ?? rowContextMenu.node.path,
                 }),
             },
-            { label: 'reveal in finder', onSelect: () => onRevealFolder(rowContextMenu.path) },
-            { label: 'delete', onSelect: () => onDeleteFolder(rowContextMenu.path), danger: true },
+            { label: 'reveal in finder', onSelect: () => onRevealFolder(rowContextMenu.node.path) },
+            { label: 'delete', onSelect: () => onDeleteFolder(rowContextMenu.node.path), danger: true },
           ]}
         />
       )}
@@ -406,6 +568,14 @@ export function FolderTree({
           onClose={() => setRowContextMenu(null)}
           items={[
             { label: 'new note', onSelect: () => onNewNoteInFolder('') },
+            root.hub
+              ? {
+                  label: 'open hub',
+                  onSelect: () => {
+                    if (root.hub) onSelect(root.hub.path);
+                  },
+                }
+              : { label: 'new hub', onSelect: () => onNewHubInFolder('') },
             { label: 'new folder', onSelect: onNewFolderAtRoot },
           ]}
         />

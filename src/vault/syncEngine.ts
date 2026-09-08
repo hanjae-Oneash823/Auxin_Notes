@@ -2,7 +2,8 @@ import { invoke } from '@tauri-apps/api/core';
 import { ulid } from 'ulid';
 import type Database from '@tauri-apps/plugin-sql';
 import { getDb } from '../db/client';
-import { parseFrontmatter } from './parseFrontmatter';
+import { extractLegacyFrontmatter } from './parseFrontmatter';
+import { parseHubBlock } from './parseHubBlock';
 import { countWords, parseInlineTags, parseLinks } from './parseLinksAndTags';
 import { pathQualifiedTarget, resolveLinkTarget } from './aliasResolution';
 import type { ParsedNote } from './types';
@@ -22,79 +23,105 @@ function titleFromPath(path: string): string {
   return fileName.replace(/\.md$/, '');
 }
 
-/**
- * Parses a note's raw file contents. Missing id/created/modified are filled
- * in with sane defaults (caller is responsible for writing them back to disk
- * — this function only ever reads, never writes).
- */
-function parseNote(raw: string, path: string): ParsedNote {
-  const { frontmatter, body, malformed } = parseFrontmatter(raw);
-  const now = new Date().toISOString();
+function dirname(path: string): string {
+  const index = path.lastIndexOf('/');
+  return index === -1 ? '' : path.slice(0, index);
+}
 
-  return {
-    frontmatter: {
-      id: frontmatter.id ?? ulid(),
-      created: frontmatter.created ?? now,
-      modified: frontmatter.modified ?? now,
-      tags: frontmatter.tags ?? [],
-    },
-    needsAttention: malformed,
+interface ParseNoteResult {
+  note: ParsedNote;
+  /** Present only when a legacy frontmatter block carried an `id` — the
+   *  caller passes this straight through to `upsertParsedNote` as a known
+   *  id instead of letting `resolveNoteId` rediscover it via hash-matching. */
+  legacyId: string | undefined;
+  /** A legacy `---` block was found and stripped from `body` — the caller
+   *  writes the cleaned body back to disk once. */
+  strippedLegacyBlock: boolean;
+}
+
+/**
+ * Parses a note's raw file contents. If a legacy frontmatter block is
+ * present (every note written before this app stopped embedding one), its
+ * `id`/`created` are extracted for identity resolution and the block itself
+ * is stripped — `body` going forward is always frontmatter-free.
+ */
+function parseNote(raw: string, path: string): ParseNoteResult {
+  const { legacy, body, found } = extractLegacyFrontmatter(raw);
+  const now = new Date().toISOString();
+  const hubConfig = parseHubBlock(body);
+
+  const note: ParsedNote = {
+    created: legacy.created ?? now,
+    modified: now,
     body,
     title: titleFromPath(path),
     wordCount: countWords(body),
-    contentHash: hashContent(raw),
+    contentHash: hashContent(body),
     links: parseLinks(body),
-    tags: Array.from(new Set([...(frontmatter.tags ?? []), ...parseInlineTags(body)])),
+    tags: parseInlineTags(body),
+    isHub: hubConfig !== null,
+    hubFolder: hubConfig ? hubConfig.folder ?? dirname(path) : null,
+    hubRecursive: hubConfig?.recursive ?? true,
   };
-}
 
-function serializeNote(note: ParsedNote): string {
-  const tagsLine =
-    note.frontmatter.tags.length > 0
-      ? `tags: [${note.frontmatter.tags.join(', ')}]`
-      : 'tags: []';
-  return [
-    '---',
-    `id: ${note.frontmatter.id}`,
-    `created: ${note.frontmatter.created}`,
-    `modified: ${note.frontmatter.modified}`,
-    tagsLine,
-    '---',
-    note.body,
-  ].join('\n');
+  return { note, legacyId: legacy.id, strippedLegacyBlock: found };
 }
 
 /**
- * Reads, parses, and indexes one absolute path inside the vault. Backfills
- * missing frontmatter (writing the file once if needed), then upserts
- * notes/tags/note_tags/links/notes_fts. Never throws on a single malformed
- * file — failures degrade to a `needsAttention` note rather than halting the
- * sync of everything else.
+ * Reads, parses, and indexes one absolute path inside the vault. Strips a
+ * legacy frontmatter block if one is found (writing the file once), then
+ * upserts notes/tags/note_tags/links/notes_fts. Never throws on a single
+ * malformed file — a body is just a body now, so there's nothing left that
+ * can fail to parse.
  */
 export async function syncFile(vaultRoot: string, absolutePath: string): Promise<void> {
   const db = await getDb(vaultRoot);
-  let raw: string;
+  const raw = await readNoteOrNull(absolutePath);
+  if (raw === null) return;
+  await syncRawContent(db, vaultRoot, absolutePath, raw);
+}
+
+/**
+ * Same as `syncFile`, but for an app-initiated rename (title field, folder-
+ * tree drag): `renameEngine.ts` already knows the exact id of the note being
+ * renamed, so this skips `resolveNoteId`'s hash-matching entirely — no need
+ * to guess an answer that's already known.
+ */
+export async function syncFileAsRename(
+  vaultRoot: string,
+  absolutePath: string,
+  knownId: string,
+): Promise<void> {
+  const db = await getDb(vaultRoot);
+  const raw = await readNoteOrNull(absolutePath);
+  if (raw === null) return;
+  await syncRawContent(db, vaultRoot, absolutePath, raw, knownId);
+}
+
+async function readNoteOrNull(absolutePath: string): Promise<string | null> {
   try {
-    raw = await invoke<string>('read_note', { path: absolutePath });
+    return await invoke<string>('read_note', { path: absolutePath });
   } catch {
-    return; // file vanished between the change event and this read; the
-    // remove path (syncRemoved) or the next reconciliation pass handles it
+    // file vanished between the change event and this read; the remove path
+    // (syncRemoved) or the next reconciliation pass handles it
+    return null;
+  }
+}
+
+async function syncRawContent(
+  db: Database,
+  vaultRoot: string,
+  absolutePath: string,
+  raw: string,
+  knownId?: string,
+): Promise<void> {
+  const { note, legacyId, strippedLegacyBlock } = parseNote(raw, absolutePath);
+
+  if (strippedLegacyBlock) {
+    await invoke('write_note', { path: absolutePath, content: note.body });
   }
 
-  const note = parseNote(raw, absolutePath);
-
-  // A frontmatter block can be present but still missing `id` (e.g.
-  // hand-authored, or written by an external tool) — checking only for the
-  // block's existence would skip backfilling the freshly-generated id here
-  // to disk, so the *next* sync mints a different id for the same file and
-  // collides with this one on the `path` UNIQUE constraint.
-  const { frontmatter: rawFrontmatter } = parseFrontmatter(raw);
-  const needsBackfill = !rawFrontmatter.id || !rawFrontmatter.created || !rawFrontmatter.modified;
-  if (needsBackfill) {
-    await invoke('write_note', { path: absolutePath, content: serializeNote(note) });
-  }
-
-  await upsertParsedNote(db, vaultRoot, absolutePath, note);
+  await upsertParsedNote(db, vaultRoot, absolutePath, note, knownId ?? legacyId);
 }
 
 export async function syncRemoved(vaultRoot: string, absolutePath: string): Promise<void> {
@@ -103,17 +130,53 @@ export async function syncRemoved(vaultRoot: string, absolutePath: string): Prom
   await db.execute('UPDATE notes SET is_deleted = 1 WHERE path = ?', [relativePath]);
 }
 
+/**
+ * Figures out which note (if any) a freshly-synced file corresponds to, so a
+ * rename doesn't look like "old note deleted, new note created" downstream.
+ * Only called when the caller doesn't already know the id (see
+ * `syncFileAsRename` and the legacy-id path in `syncRawContent`).
+ *
+ * 1. An `is_deleted = 0` row already at this exact path — an ordinary edit.
+ * 2. Else, exactly one tombstoned row sharing this content hash — a rename
+ *    (covers both a live external rename and one discovered at startup
+ *    reconciliation; a same-batch external rename tombstones the old path
+ *    before this runs — see vaultStore.ts's ordering).
+ * 3. Multiple tombstoned matches (e.g. several empty notes) — ambiguous,
+ *    don't guess.
+ * 4. Otherwise — a genuinely new note; mint a fresh id.
+ */
+async function resolveNoteId(
+  db: Database,
+  relativePath: string,
+  contentHash: string,
+): Promise<string> {
+  const atPath = await db.select<{ id: string }[]>(
+    'SELECT id FROM notes WHERE path = ? AND is_deleted = 0',
+    [relativePath],
+  );
+  if (atPath.length > 0) return atPath[0].id;
+
+  const tombstoned = await db.select<{ id: string }[]>(
+    'SELECT id FROM notes WHERE is_deleted = 1 AND content_hash = ?',
+    [contentHash],
+  );
+  if (tombstoned.length === 1) return tombstoned[0].id;
+
+  return ulid();
+}
+
 async function upsertParsedNote(
   db: Database,
   vaultRoot: string,
   absolutePath: string,
   note: ParsedNote,
+  knownId: string | undefined,
 ): Promise<void> {
   const relativePath = toRelativePath(vaultRoot, absolutePath);
-  const { id } = note.frontmatter;
+  const id = knownId ?? (await resolveNoteId(db, relativePath, note.contentHash));
 
-  const existing = await db.select<{ id: string; path: string; title: string }[]>(
-    'SELECT id, path, title FROM notes WHERE id = ?',
+  const existing = await db.select<{ id: string; path: string; title: string; created: string }[]>(
+    'SELECT id, path, title, created FROM notes WHERE id = ?',
     [id],
   );
 
@@ -127,11 +190,16 @@ async function upsertParsedNote(
     ]);
   }
 
+  // A row already found by id is authoritative for `created` — preserves
+  // the real creation date across edits and renames. Only a row genuinely
+  // new to the DB (first sync of a brand-new note, or the first
+  // post-migration sync of a legacy note) falls back to `note.created`.
+  const created = existing.length > 0 ? existing[0].created : note.created;
+
   // A stale row can already occupy this path under a *different* id — e.g.
-  // a previous sync generated an id that never made it to disk (a since-
-  // fixed backfill gap) or two syncs raced on a brand-new file. The file's
-  // own on-disk frontmatter id is authoritative; retire the stale row so
-  // this insert doesn't collide with it on the `path` UNIQUE constraint.
+  // two syncs raced on a brand-new file. This file's own resolved id is
+  // authoritative; retire the stale row so this insert doesn't collide with
+  // it on the `path` UNIQUE constraint.
   const stalePathRows = await db.select<{ id: string }[]>(
     'SELECT id FROM notes WHERE path = ? AND id != ?',
     [relativePath, id],
@@ -145,8 +213,8 @@ async function upsertParsedNote(
   }
 
   await db.execute(
-    `INSERT INTO notes (id, path, title, created, modified, content_hash, synced_at_ms, word_count, is_deleted, needs_attention)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
+    `INSERT INTO notes (id, path, title, created, modified, content_hash, synced_at_ms, word_count, is_deleted, needs_attention, is_hub, hub_folder, hub_recursive)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET
        path = excluded.path,
        title = excluded.title,
@@ -155,17 +223,22 @@ async function upsertParsedNote(
        synced_at_ms = excluded.synced_at_ms,
        word_count = excluded.word_count,
        is_deleted = 0,
-       needs_attention = excluded.needs_attention`,
+       needs_attention = 0,
+       is_hub = excluded.is_hub,
+       hub_folder = excluded.hub_folder,
+       hub_recursive = excluded.hub_recursive`,
     [
       id,
       relativePath,
       note.title,
-      note.frontmatter.created,
-      note.frontmatter.modified,
+      created,
+      note.modified,
       note.contentHash,
       Date.now(),
       note.wordCount,
-      note.needsAttention ? 1 : 0,
+      note.isHub ? 1 : 0,
+      note.hubFolder,
+      note.hubRecursive ? 1 : 0,
     ],
   );
 

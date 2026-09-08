@@ -28,6 +28,22 @@ interface VaultState {
 
 let unlistenChange: UnlistenFn | null = null;
 
+/**
+ * Processes one debounced batch of external file-change events. Every
+ * `removed` event is awaited to completion (tombstoning its row) before any
+ * `created`/`modified` event runs — a same-batch external rename (old path
+ * removed, new path created) needs the old row already tombstoned by the
+ * time resolveNoteId's content-hash matching (syncEngine.ts) runs on the new
+ * path, or it looks like an unrelated delete-and-create instead of a rename.
+ */
+async function processChangeBatch(vaultRoot: string, events: VaultChangeEvent[]): Promise<void> {
+  const removed = events.filter((event) => event.kind === 'removed');
+  const rest = events.filter((event) => event.kind !== 'removed');
+
+  await Promise.all(removed.map((event) => syncRemoved(vaultRoot, event.path)));
+  await Promise.all(rest.map((event) => syncFile(vaultRoot, event.path)));
+}
+
 export const useVaultStore = create<VaultState>((set, get) => ({
   vaultRoot: null,
   status: 'idle',
@@ -45,16 +61,22 @@ export const useVaultStore = create<VaultState>((set, get) => ({
     set({ status: 'loading', error: null });
     try {
       await invoke('watch_vault', { path });
+      // Grants the asset protocol runtime read access to this vault's
+      // directory tree — imageWidget.ts uses `convertFileSrc` to stream
+      // image files straight to the webview, which needs this scope
+      // widened per-vault since the path is chosen at runtime, not known
+      // at build time (see allow_vault_asset_access's own doc comment).
+      await invoke('allow_vault_asset_access', { path });
       await reconcileVault(path);
 
       if (unlistenChange) {
         unlistenChange();
         unlistenChange = null;
       }
-      unlistenChange = await listen<VaultChangeEvent>('vault://changed', (event) => {
-        const { path: changedPath, kind } = event.payload;
-        const sync = kind === 'removed' ? syncRemoved(path, changedPath) : syncFile(path, changedPath);
-        void sync.then(() => set((state) => ({ syncVersion: state.syncVersion + 1 })));
+      unlistenChange = await listen<VaultChangeEvent[]>('vault://changed', (event) => {
+        void processChangeBatch(path, event.payload).then(() =>
+          set((state) => ({ syncVersion: state.syncVersion + 1 })),
+        );
       });
 
       const config = await getAppConfig();

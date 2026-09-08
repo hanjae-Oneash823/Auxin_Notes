@@ -9,6 +9,7 @@ export interface AppConfig {
   font_size_id: string | null;
   sidebar_width_left: number | null;
   sidebar_width_right: number | null;
+  theme_id: string | null;
 }
 
 export async function getAppConfig(): Promise<AppConfig> {

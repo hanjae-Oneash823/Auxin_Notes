@@ -8,13 +8,16 @@ import {
 } from '../../design/fontOptions';
 
 const DEFAULT_SIDEBAR_WIDTH_PX = 256;
+export const DEFAULT_THEME_ID = 'dark';
 
 interface SettingsState {
   fontFamilyId: string;
   fontSizeId: string;
+  themeId: string;
   initFromConfig: () => Promise<void>;
   setFontFamily: (id: string) => Promise<void>;
   setFontSize: (id: string) => Promise<void>;
+  setTheme: (id: string) => Promise<void>;
   setSidebarWidthLeft: (widthPx: number) => Promise<void>;
   setSidebarWidthRight: (widthPx: number) => Promise<void>;
 }
@@ -36,16 +39,27 @@ function applyFont(fontFamilyId: string, fontSizeId: string): void {
   root.setProperty('--font-size-base', `${size.px}px`);
 }
 
+/** `data-theme` (not a CSS var override like `applyFont`) — tokens.css keys
+ *  its whole light palette off `[data-theme="light"]` in one place, so
+ *  every token flips together rather than this needing to know what each
+ *  one is. */
+function applyTheme(themeId: string): void {
+  document.documentElement.dataset.theme = themeId;
+}
+
 export const useSettingsStore = create<SettingsState>((set, get) => ({
   fontFamilyId: DEFAULT_FONT_FAMILY_ID,
   fontSizeId: DEFAULT_FONT_SIZE_ID,
+  themeId: DEFAULT_THEME_ID,
 
   initFromConfig: async () => {
     const config = await getAppConfig();
     const fontFamilyId = config.font_family_id ?? DEFAULT_FONT_FAMILY_ID;
     const fontSizeId = config.font_size_id ?? DEFAULT_FONT_SIZE_ID;
+    const themeId = config.theme_id ?? DEFAULT_THEME_ID;
     applyFont(fontFamilyId, fontSizeId);
-    set({ fontFamilyId, fontSizeId });
+    applyTheme(themeId);
+    set({ fontFamilyId, fontSizeId, themeId });
 
     const root = document.documentElement.style;
     root.setProperty('--width-sidebar-left', `${config.sidebar_width_left ?? DEFAULT_SIDEBAR_WIDTH_PX}px`);
@@ -62,6 +76,12 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     applyFont(get().fontFamilyId, id);
     set({ fontSizeId: id });
     await patchAppConfig({ font_size_id: id });
+  },
+
+  setTheme: async (id: string) => {
+    applyTheme(id);
+    set({ themeId: id });
+    await patchAppConfig({ theme_id: id });
   },
 
   // No local state for either — nothing reactively displays the panel

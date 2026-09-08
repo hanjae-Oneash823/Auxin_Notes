@@ -5,12 +5,18 @@ export default {
   theme: {
     extend: {
       colors: {
-        bg: 'var(--color-bg)',
+        bg: {
+          DEFAULT: 'var(--color-bg)',
+          chrome: 'var(--color-chrome-bg)',
+          footer: 'var(--color-footer-bg)',
+        },
         fg: {
-          DEFAULT: 'var(--color-fg)',
-          faint: 'rgba(255, 255, 255, var(--fg-opacity-faint))',
-          muted: 'rgba(255, 255, 255, var(--fg-opacity-muted))',
-          prominent: 'rgba(255, 255, 255, var(--fg-opacity-prominent))',
+          DEFAULT: 'var(--fg-full)',
+          faint: 'var(--fg-faint)',
+          muted: 'var(--fg-muted)',
+          prominent: 'var(--fg-prominent)',
+          footer: 'var(--color-footer-fg)',
+          'footer-prominent': 'var(--color-footer-fg-prominent)',
         },
         border: {
           subtle: 'var(--border-subtle)',

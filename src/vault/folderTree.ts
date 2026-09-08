@@ -7,9 +7,14 @@ export interface FolderNode {
   path: string;
   folders: FolderNode[];
   notes: NoteSummary[];
-  /** Notes in this folder plus every descendant subfolder — set by
-   *  `buildFolderTree`, not maintained incrementally, so it's only valid
-   *  for the tree it was computed on. */
+  /** This folder's own hub note, if it has one — at most one per folder,
+   *  identified structurally (an is_hub note living directly in this
+   *  folder), not by parsing its config block. Excluded from `notes` so it
+   *  renders as a distinct pinned row instead of an ordinary note. */
+  hub: NoteSummary | null;
+  /** Notes in this folder plus every descendant subfolder (the folder's own
+   *  hub, if any, counts too) — set by `buildFolderTree`, not maintained
+   *  incrementally, so it's only valid for the tree it was computed on. */
   noteCount: number;
 }
 
@@ -22,7 +27,7 @@ export interface FolderNode {
  * moment nothing referenced it.
  */
 export function buildFolderTree(notes: NoteSummary[], folderPaths: string[]): FolderNode {
-  const root: FolderNode = { name: '', path: '', folders: [], notes: [], noteCount: 0 };
+  const root: FolderNode = { name: '', path: '', folders: [], notes: [], hub: null, noteCount: 0 };
   const nodesByPath = new Map<string, FolderNode>([['', root]]);
 
   function ensureFolder(path: string): FolderNode {
@@ -34,7 +39,7 @@ export function buildFolderTree(notes: NoteSummary[], folderPaths: string[]): Fo
     const parentPath = slashIndex >= 0 ? path.slice(0, slashIndex) : '';
     const parent = ensureFolder(parentPath);
 
-    const node: FolderNode = { name, path, folders: [], notes: [], noteCount: 0 };
+    const node: FolderNode = { name, path, folders: [], notes: [], hub: null, noteCount: 0 };
     parent.folders.push(node);
     nodesByPath.set(path, node);
     return node;
@@ -47,7 +52,16 @@ export function buildFolderTree(notes: NoteSummary[], folderPaths: string[]): Fo
   for (const note of notes) {
     const slashIndex = note.path.lastIndexOf('/');
     const dirPath = slashIndex >= 0 ? note.path.slice(0, slashIndex) : '';
-    ensureFolder(dirPath).notes.push(note);
+    const folder = ensureFolder(dirPath);
+    // At most one hub per folder — a second is_hub note landing in the same
+    // folder (a rare hand-authored edge case; the app's own creation flow
+    // already prevents it) just falls back to rendering as an ordinary note
+    // rather than being silently dropped from the tree.
+    if (note.isHub && !folder.hub) {
+      folder.hub = note;
+    } else {
+      folder.notes.push(note);
+    }
   }
 
   sortTree(root);
@@ -61,9 +75,10 @@ function sortTree(node: FolderNode): void {
   for (const folder of node.folders) sortTree(folder);
 }
 
-/** Sums each folder's own notes plus every descendant subfolder's, bottom-up. */
+/** Sums each folder's own notes (plus its hub, if any) and every descendant
+ *  subfolder's, bottom-up. */
 function computeNoteCounts(node: FolderNode): number {
-  let total = node.notes.length;
+  let total = node.notes.length + (node.hub ? 1 : 0);
   for (const folder of node.folders) {
     total += computeNoteCounts(folder);
   }
@@ -73,14 +88,17 @@ function computeNoteCounts(node: FolderNode): number {
 
 export type TreeRow =
   | { kind: 'folder'; node: FolderNode; depth: number }
+  | { kind: 'hub'; note: NoteSummary; depth: number; folderPath: string }
   | { kind: 'note'; note: NoteSummary; depth: number; folderPath: string };
 
 /**
  * Flattens the tree into the ordered list of rows that should actually be
- * rendered given which folders are collapsed — folders before notes at each
- * level, both alphabetical (already the case after `sortTree`). This flat
- * list is what gets virtualized, the same technique the old flat NoteList
- * used, so a large vault stays cheap to render even nested.
+ * rendered given which folders are collapsed — a folder's own hub (if any)
+ * pinned as the first row of its contents, then subfolders, then ordinary
+ * notes, all alphabetical within their own group (already the case after
+ * `sortTree`). This flat list is what gets virtualized, the same technique
+ * the old flat NoteList used, so a large vault stays cheap to render even
+ * nested.
  *
  * Takes *collapsed* paths rather than expanded ones so a folder nobody has
  * touched yet — including one that didn't exist last render — defaults to
@@ -90,6 +108,7 @@ export function flattenTree(root: FolderNode, collapsedPaths: ReadonlySet<string
   const rows: TreeRow[] = [];
 
   function visit(node: FolderNode, depth: number): void {
+    if (node.hub) rows.push({ kind: 'hub', note: node.hub, depth, folderPath: node.path });
     for (const folder of node.folders) {
       rows.push({ kind: 'folder', node: folder, depth });
       if (!collapsedPaths.has(folder.path)) visit(folder, depth + 1);

@@ -7,11 +7,35 @@
 :root {
   --color-bg: #000000;
   --color-fg: #ffffff;
+  /* Header strip (TitleBar) and icon rail — same as `--color-bg` in dark
+     (no visible change) but a distinct off-white in light mode, see
+     `[data-theme="light"]` below. */
+  --color-chrome-bg: #000000;
+  /* Bottom status/footer strip — pure black in dark mode, dark grey in
+     light mode (see `[data-theme="light"]` below). Its own text needs
+     fixed light-on-dark tones for the same reason: `--fg-*` would go
+     near-black in light mode and vanish against this always-dark bar. */
+  --color-footer-bg: #000000;
+  --color-footer-fg: rgba(255, 255, 255, 0.62);
+  --color-footer-fg-prominent: rgba(255, 255, 255, 0.85);
 
+  /* Bare ratios, theme-independent — for consumers dimming a whole element
+     via the `opacity` CSS property (linkChipWidget.ts), where the base
+     color underneath doesn't matter, so unlike the resolved colors below
+     these don't need a `[data-theme="light"]` override. */
   --fg-opacity-faint: 0.35;
   --fg-opacity-muted: 0.62;
   --fg-opacity-prominent: 0.85;
-  --fg-opacity-full: 1;
+
+  /* Fully-resolved colors, not just opacity numbers — for `color`/
+     `background`/`border` consumers, where the RGB base has to be able to
+     flip per theme (see `[data-theme="light"]` below), which a bare
+     opacity ratio layered onto a hardcoded white in the consumer (Tailwind
+     config, inline widget styles) can't do. */
+  --fg-faint: rgba(255, 255, 255, 0.35);
+  --fg-muted: rgba(255, 255, 255, 0.62);
+  --fg-prominent: rgba(255, 255, 255, 0.85);
+  --fg-full: #ffffff;
 
   --border-subtle: rgba(255, 255, 255, 0.06);
   --border-default: rgba(255, 255, 255, 0.16);
@@ -22,6 +46,8 @@
   --accent-tag: #b7ff5f;
   --accent-status-dot: #5fff9e;
   --accent-caret: #ffffff;
+  --accent-warning: #ffcf5f;
+  --accent-info: #9f8fff;
 
   --space-chrome-xs: 4px;
   --space-chrome-sm: 8px;
@@ -30,6 +56,9 @@
   --space-content-sm: 16px;
   --space-content-md: 24px;
   --space-content-lg: 32px;
+  /* Extra scroll room below the editor's last line, so it can be scrolled
+     up away from the viewport's bottom edge rather than staying pinned. */
+  --space-scroll-overscroll: 240px;
 
   --width-rail: 3.25rem;
   --width-sidebar-left: 16rem;
@@ -54,4 +83,45 @@
   --duration-panel: 0.3s;
 
   --border-hairline: 1px solid;
+}
+
+/* Explicit opt-in only (Settings → Theme) — not tied to
+   `prefers-color-scheme`, since Dark is this app's default identity, not a
+   fallback for "OS says dark". A considered light palette, not a flat
+   invert: off-white/near-black rather than pure #fff/#000, and every accent
+   re-darkened/saturated for contrast on a light ground — the dark-mode
+   hexes are bright, picked to pop on black, and read as too washed-out on
+   white as-is. */
+[data-theme='light'] {
+  --color-bg: #ffffff;
+  --color-fg: #14161a;
+  /* The old off-white `--color-bg` value, repurposed: the main content
+     ground goes pure white above, so header strip/icon rail keep a subtle
+     warm off-white to still read as a distinct chrome layer instead of
+     fusing into the page. */
+  --color-chrome-bg: #f8f5f0;
+  /* Footer stays a dark strip in light mode too, but pure black reads too
+     harsh against the rest of the light palette — dark grey instead. */
+  --color-footer-bg: #2a2a2a;
+
+  --fg-faint: rgba(20, 22, 26, 0.35);
+  --fg-muted: rgba(20, 22, 26, 0.62);
+  --fg-prominent: rgba(20, 22, 26, 0.85);
+  --fg-full: #14161a;
+
+  --border-subtle: rgba(20, 22, 26, 0.06);
+  /* Panel-separating borders (sidebar, terminal, settings, the title field)
+     go near-black rather than a translucent tint in light mode — reads as
+     a much crisper division on a near-white ground than a soft gray line,
+     without the starkness of literal pure black. */
+  --border-default: #1c1c1c;
+  --border-strong: #1c1c1c;
+
+  --accent-link: #0086b3;
+  --accent-link-broken: #c8382d;
+  --accent-tag: #4d7a1a;
+  --accent-status-dot: #1fa563;
+  --accent-caret: #14161a;
+  --accent-warning: #9a6a00;
+  --accent-info: #5b4bc4;
 }

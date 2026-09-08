@@ -39,7 +39,7 @@ function RailButton({ title, isActive, onClick, children }: RailButtonProps) {
  *  sidebar staying visible regardless of graph mode today. */
 export function IconRail({ activeSidebarView, onSelectSidebarView, isGraphMode, onToggleGraphMode }: IconRailProps) {
   return (
-    <nav className="flex w-rail shrink-0 flex-col items-center gap-3 border-r-[1.5px] border-r-border-strong px-2 py-3">
+    <nav className="flex w-rail shrink-0 flex-col items-center gap-3 border-r-[1.5px] border-r-border-strong bg-bg-chrome px-2 py-3">
       <RailButton title="files" isActive={activeSidebarView === 'files'} onClick={() => onSelectSidebarView('files')}>
         <Files size={22} weight="regular" />
       </RailButton>

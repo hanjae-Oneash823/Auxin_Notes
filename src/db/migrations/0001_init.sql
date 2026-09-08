@@ -4,12 +4,16 @@
 -- vault) must always converge to correct state.
 
 CREATE TABLE IF NOT EXISTS notes (
-  id            TEXT PRIMARY KEY,       -- ULID from frontmatter
+  id            TEXT PRIMARY KEY,       -- ULID, minted and owned by the app — never stored in
+                                         -- the file; identity survives a rename via
+                                         -- resolveNoteId's content-hash match (syncEngine.ts)
   path          TEXT NOT NULL UNIQUE,   -- vault-relative path, current on-disk location
   title         TEXT NOT NULL,          -- derived from filename (sans .md)
-  created       TEXT NOT NULL,          -- ISO8601, from frontmatter
-  modified      TEXT NOT NULL,          -- ISO8601, from frontmatter
-  content_hash  TEXT NOT NULL,          -- hash of raw file bytes, for change detection
+  created       TEXT NOT NULL,          -- ISO8601, database-owned; set once, preserved across
+                                         -- edits and renames
+  modified      TEXT NOT NULL,          -- ISO8601, database-owned; bumped on every sync
+  content_hash  TEXT NOT NULL,          -- hash of the note body, for change detection and
+                                         -- resolveNoteId's rename-matching
   synced_at_ms  INTEGER NOT NULL DEFAULT 0, -- wall-clock time we last synced this note's
                                              -- content; startup reconciliation compares a
                                              -- file's on-disk mtime against this to decide,
@@ -17,9 +21,19 @@ CREATE TABLE IF NOT EXISTS notes (
                                              -- needed — avoids reading every file on launch
   word_count    INTEGER NOT NULL DEFAULT 0,
   is_deleted    INTEGER NOT NULL DEFAULT 0, -- tombstone; file missing on disk but not yet purged
-  needs_attention INTEGER NOT NULL DEFAULT 0 -- frontmatter parse failed; indexed as title/path
-                                              -- only (see parseFrontmatter.ts) — surfaced in the
-                                              -- note list rather than silently degrading
+  needs_attention INTEGER NOT NULL DEFAULT 0, -- unused: a note body can't fail to parse now that
+                                              -- there's no frontmatter block. Column kept rather
+                                              -- than dropped (this schema's migrations are
+                                              -- additive-only — see ensureColumn in db/client.ts)
+  is_hub        INTEGER NOT NULL DEFAULT 0, -- body contains a parseable ```hub fenced config
+                                             -- block (see vault/parseHubBlock.ts); computed in
+                                             -- syncEngine.ts's parseNote, never written directly
+  hub_folder    TEXT,                       -- resolved scope folder for a hub note (NULL for a
+                                             -- non-hub note); lets getHubGraphEdges (hub.ts)
+                                             -- draw the hub's member edges without re-parsing
+                                             -- every hub note's body on every graph load
+  hub_recursive INTEGER NOT NULL DEFAULT 1  -- resolved 'recursive' config for a hub note;
+                                             -- meaningless (default) for a non-hub note
 );
 CREATE INDEX IF NOT EXISTS idx_notes_path ON notes(path);
 CREATE INDEX IF NOT EXISTS idx_notes_modified ON notes(modified);

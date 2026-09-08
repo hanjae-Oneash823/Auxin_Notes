@@ -22,12 +22,15 @@ import { ConfirmDialog } from './layout/ConfirmDialog';
 import { reorderIds } from './layout/tabOrder';
 import { titleFromPath } from './vault/noteTitle';
 import { HomeDashboard } from './notes/HomeDashboard';
+import { HubView } from './notes/HubView';
 import { FolderTree } from './notes/FolderTree';
 import { TagBrowser } from './notes/TagBrowser';
 import { BacklinksPanel } from './notes/BacklinksPanel';
+import { TocPanel } from './notes/TocPanel';
 import { UnresolvedLinksPanel } from './notes/UnresolvedLinksPanel';
 import { SearchPanel } from './search/SearchPanel';
 import { GraphPanel } from './graph/GraphPanel';
+import { TerminalLauncher } from './terminal/TerminalLauncher';
 
 async function fetchNotes(vaultRoot: string, tag: string | null): Promise<NoteSummary[]> {
   const db = await getDb(vaultRoot);
@@ -93,6 +96,11 @@ function VaultReady({
   // Resets to writing mode on every app launch — not persisted, deliberately.
   const [isReadingMode, setIsReadingMode] = useState(false);
   const [isGraphMode, setIsGraphMode] = useState(false);
+  // Lets a hub note's "edit source" button show the plain Editor for that one
+  // tab instead of HubView — cleared implicitly by switching away (the
+  // render check below compares against the currently active path, so
+  // leaving and reopening the tab starts fresh in HubView).
+  const [forceEditPath, setForceEditPath] = useState<string | null>(null);
   // Which view the icon rail has selected for the left sidebar — resets to
   // 'files' on every app launch, same as reading mode above.
   const [activeSidebarView, setActiveSidebarView] = useState<SidebarView>('files');
@@ -132,6 +140,41 @@ function VaultReady({
     // A freshly created note is opened to be written into — reading mode
     // would make it immediately non-editable with no obvious way to start.
     setIsReadingMode(false);
+  }
+
+  /** Same shape as `createNote`, but pre-fills the fenced ```hub config block
+   *  (see parseHubBlock.ts) scoped to `folderPath` — the note opens straight
+   *  into HubView (App.tsx's render branch below keys off notes.is_hub, set
+   *  by syncEngine.ts as soon as this first sync runs). */
+  /** A folder either has a hub or doesn't — the hub's own filename is
+   *  deterministic ("<Folder> Hub.md" / "Vault Hub.md" at root) so this is
+   *  naturally idempotent: calling it again for a folder that already has
+   *  one just opens that hub instead of creating a duplicate. */
+  async function createHub(folderPath?: string) {
+    const folder = folderPath ?? '';
+    const folderName = folder ? folder.split('/').pop() ?? folder : 'Vault';
+    const title = `${folderName} Hub`;
+    const relativePath = folder ? `${folder}/${title}.md` : `${title}.md`;
+    const absolutePath = `${vaultRoot}/${relativePath}`;
+
+    const existing = allNotes?.find((note) => note.path === relativePath);
+    if (existing) {
+      if (existing.isHub) {
+        openAbsolutePath(absolutePath);
+      } else {
+        // Vanishingly rare: a non-hub note already sits at the exact
+        // deterministic hub filename — refuse rather than silently
+        // overwriting whatever the user actually wrote there.
+        setRenameStatus({ message: `"${title}" already exists here and isn't a hub`, isError: true });
+      }
+      return;
+    }
+
+    const content = ['```hub', `folder: ${folder}`, 'recursive: true', 'sort: modified', 'groupBy: flat', '```', ''].join('\n');
+    await invoke('write_note', { path: absolutePath, content });
+    await syncFile(vaultRoot, absolutePath);
+    await refreshNotes();
+    openAbsolutePath(absolutePath);
   }
 
   /** Reveals a note or folder's file in the OS file explorer (Finder). */
@@ -344,6 +387,7 @@ function VaultReady({
                   onRevealNote={(note) => void revealNote(note)}
                   onRevealFolder={(folderPath) => void revealFolder(folderPath)}
                   onNewNoteInFolder={(folderPath) => void createNote(folderPath)}
+                  onNewHubInFolder={(folderPath) => void createHub(folderPath)}
                   onNewFolderAtRoot={() => {
                     setIsCreatingFolder(true);
                     setNewFolderName('');
@@ -389,6 +433,7 @@ function VaultReady({
       }
       inspector={
         <Sidebar side="right" onResizeEnd={(px) => void setSidebarWidthRight(px)}>
+          <TocPanel activePath={activePath} />
           <BacklinksPanel vaultRoot={vaultRoot} noteId={activeNote?.id ?? null} onSelect={openRelativePath} />
           <UnresolvedLinksPanel vaultRoot={vaultRoot} onSelect={openRelativePath} onChanged={refreshNotes} />
         </Sidebar>
@@ -426,15 +471,39 @@ function VaultReady({
                 setIsGraphMode(false);
               }}
             />
-          ) : activePath ? (
-            <Editor
+          ) : activePath && activeNote?.isHub && forceEditPath !== activePath ? (
+            <HubView
               key={activePath}
-              path={activePath}
+              note={activeNote}
               vaultRoot={vaultRoot}
               onNavigate={openRelativePath}
-              onRenameTitle={renameActiveNote}
-              readOnly={isReadingMode}
+              onEditSource={() => setForceEditPath(activePath)}
             />
+          ) : activePath ? (
+            <div className="flex h-full flex-col">
+              {activeNote?.isHub && (
+                <div className="flex shrink-0 items-center justify-end border-b border-b-border-subtle px-2 py-1">
+                  <button
+                    type="button"
+                    onClick={() => setForceEditPath(null)}
+                    className="text-fg-faint hover:text-fg-prominent"
+                    style={{ fontSize: '0.75rem' }}
+                  >
+                    [back to hub view]
+                  </button>
+                </div>
+              )}
+              <div className="min-h-0 flex-1">
+                <Editor
+                  key={activePath}
+                  path={activePath}
+                  vaultRoot={vaultRoot}
+                  onNavigate={openRelativePath}
+                  onRenameTitle={renameActiveNote}
+                  readOnly={isReadingMode}
+                />
+              </div>
+            </div>
           ) : (
             <HomeDashboard
               noteCount={allNotes?.length ?? 0}
@@ -567,6 +636,7 @@ function App() {
           />
         )}
       </div>
+      <TerminalLauncher vaultRoot={vaultRoot ?? undefined} />
     </div>
   );
 }

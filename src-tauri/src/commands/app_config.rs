@@ -21,6 +21,10 @@ pub struct AppConfig {
     pub sidebar_width_left: Option<f64>,
     #[serde(default)]
     pub sidebar_width_right: Option<f64>,
+    /// `"dark"` (the app's default) or `"light"`. `None`/absent means dark,
+    /// same as every config.json written before this field existed.
+    #[serde(default)]
+    pub theme_id: Option<String>,
 }
 
 fn config_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {

@@ -146,31 +146,19 @@ pub fn copy_image_file(vault_root: String, source_path: String) -> Result<String
     Ok(format!("{ATTACHMENTS_DIR_NAME}/{saved_name}"))
 }
 
-/// Returns an image file as a `data:` URL. Sidesteps Tauri's asset-protocol
-/// scope configuration (which would need to be widened at runtime to an
-/// arbitrary user-chosen vault path) at the cost of base64 overhead — fine
-/// for note-sized images; worth revisiting if large-image performance
-/// becomes a real complaint.
+/// Grants the asset protocol runtime access to a vault's directory tree, so
+/// `convertFileSrc` can stream an image file straight to the webview instead
+/// of round-tripping it through a command as a base64 `data:` URL (the
+/// latter was the original approach here — correct, but base64 adds ~33%
+/// to an already-sizeable IPC payload for anything bigger than a small
+/// image). The static scope in tauri.conf.json is deliberately empty since
+/// the vault root is a user-chosen path picked at runtime, not known at
+/// build time — this is called once, right after a vault is opened
+/// (vaultStore.ts), to widen the scope to that specific directory instead.
 #[tauri::command]
-pub fn read_image_data_url(path: String) -> Result<String, String> {
-    let bytes = fs::read(&path).map_err(|e| e.to_string())?;
-    let mime = mime_from_extension(&path);
-    let encoded = general_purpose::STANDARD.encode(&bytes);
-    Ok(format!("data:{mime};base64,{encoded}"))
-}
-
-fn mime_from_extension(path: &str) -> &'static str {
-    let ext = Path::new(path)
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or("")
-        .to_lowercase();
-    match ext.as_str() {
-        "png" => "image/png",
-        "jpg" | "jpeg" => "image/jpeg",
-        "gif" => "image/gif",
-        "webp" => "image/webp",
-        "svg" => "image/svg+xml",
-        _ => "application/octet-stream",
-    }
+pub fn allow_vault_asset_access(app: tauri::AppHandle, path: String) -> Result<(), String> {
+    use tauri::Manager;
+    app.asset_protocol_scope()
+        .allow_directory(&path, true)
+        .map_err(|e| e.to_string())
 }

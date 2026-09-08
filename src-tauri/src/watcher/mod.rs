@@ -40,6 +40,14 @@ pub fn watch_vault(app: AppHandle, path: String) -> Result<(), String> {
                 Err(_) => return,
             };
 
+            // Collected into one batch and emitted as a single event, rather
+            // than one `emit` per path, so the frontend can process every
+            // `removed` event (tombstoning) to completion before any
+            // `created`/`modified` event in the same debounce window —
+            // resolveNoteId's rename detection (syncEngine.ts) needs the old
+            // path already tombstoned before a same-batch rename target syncs.
+            let mut batch: Vec<VaultChangeEvent> = Vec::new();
+
             for debounced in events {
                 let kind = match debounced.event.kind {
                     notify::EventKind::Create(_) => "created",
@@ -52,14 +60,15 @@ pub fn watch_vault(app: AppHandle, path: String) -> Result<(), String> {
                     if changed_path.extension().and_then(|e| e.to_str()) != Some("md") {
                         continue;
                     }
-                    let _ = app_for_events.emit(
-                        "vault://changed",
-                        VaultChangeEvent {
-                            path: changed_path.to_string_lossy().to_string(),
-                            kind: kind.to_string(),
-                        },
-                    );
+                    batch.push(VaultChangeEvent {
+                        path: changed_path.to_string_lossy().to_string(),
+                        kind: kind.to_string(),
+                    });
                 }
+            }
+
+            if !batch.is_empty() {
+                let _ = app_for_events.emit("vault://changed", batch);
             }
         },
     )

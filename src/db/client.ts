@@ -62,6 +62,9 @@ async function runMigrations(db: Database): Promise<void> {
   // This is the one case that needs an explicit ALTER: a database created
   // before `needs_attention` was added to the schema.
   await ensureColumn(db, 'notes', 'needs_attention', 'INTEGER NOT NULL DEFAULT 0');
+  await ensureColumn(db, 'notes', 'is_hub', 'INTEGER NOT NULL DEFAULT 0');
+  await ensureColumn(db, 'notes', 'hub_folder', 'TEXT');
+  await ensureColumn(db, 'notes', 'hub_recursive', 'INTEGER NOT NULL DEFAULT 1');
 }
 
 async function ensureColumn(

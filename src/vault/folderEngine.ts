@@ -1,8 +1,10 @@
 import { invoke } from '@tauri-apps/api/core';
 import type { NoteSummary } from '../db/queries/notes';
+import { getFolderHub } from '../db/queries/hub';
 import { getDb } from '../db/client';
 import { getEditorView } from '../editor/editorRegistry';
 import { reconcileVault } from './reconcile';
+import { renameNote } from './renameEngine';
 import { syncFile } from './syncEngine';
 
 /**
@@ -86,7 +88,23 @@ export async function renameFolder(vaultRoot: string, folderPath: string, newNam
   const slashIndex = folderPath.lastIndexOf('/');
   const parentPath = slashIndex >= 0 ? folderPath.slice(0, slashIndex) : '';
   const newRelativePath = parentPath ? `${parentPath}/${newName}` : newName;
-  return renameOrMoveFolder(vaultRoot, folderPath, newRelativePath);
+  const renamedPath = await renameOrMoveFolder(vaultRoot, folderPath, newRelativePath);
+  await syncHubNameToFolder(vaultRoot, renamedPath, newName);
+  return renamedPath;
+}
+
+/** A folder's hub filename ("<Folder> Hub.md") is derived from the folder's
+ *  own name at creation time — renameFolder is the one place that name can
+ *  drift out of sync, so it's the one place that repairs it. moveFolder
+ *  (parent change only, leaf name unchanged) never needs this. */
+async function syncHubNameToFolder(vaultRoot: string, folderPath: string, folderName: string): Promise<void> {
+  const db = await getDb(vaultRoot);
+  const hub = await getFolderHub(db, folderPath);
+  if (!hub) return;
+
+  const expectedTitle = `${folderName} Hub`;
+  if (hub.title === expectedTitle) return;
+  await renameNote(vaultRoot, hub.id, expectedTitle);
 }
 
 /** Creates an empty folder at `relativePath` (parents included). */
