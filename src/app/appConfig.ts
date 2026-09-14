@@ -6,7 +6,7 @@ export interface AppConfig {
   last_vault_path: string | null;
   recent_vaults: string[];
   font_family_id: string | null;
-  font_size_id: string | null;
+  font_size_px: number | null;
   sidebar_width_left: number | null;
   sidebar_width_right: number | null;
   theme_id: string | null;

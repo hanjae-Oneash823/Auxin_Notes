@@ -1,19 +1,8 @@
 @import './tokens.css';
 
-/* IBM Plex Sans — primary UI/body font, chosen for readability. `latin-*`
- * subsets only (Auxin's UI is English-only) — the unqualified `400.css` etc.
- * bundle every Unicode subset (Greek/Cyrillic/Vietnamese/...), which would
- * ship ~40 unused font files in the packaged app for no benefit. Only the
- * weights/styles actually used (theme.ts, global.css) are imported: regular
- * + italic for prose emphasis, 700 for bold/headings. Per the CSS spec,
+/* IBM Plex Mono — code only (inline code / fences). Per the CSS spec,
  * @import must precede every other rule (@tailwind included) or engines
  * like WebKit silently ignore it — keep these here. */
-@import '@fontsource/ibm-plex-sans/latin-400.css';
-@import '@fontsource/ibm-plex-sans/latin-400-italic.css';
-@import '@fontsource/ibm-plex-sans/latin-700.css';
-
-/* IBM Plex Mono — code only (inline code / fences), matching family so it
- * doesn't clash with the sans body text the way an unrelated mono would. */
 @import '@fontsource/ibm-plex-mono/latin-400.css';
 
 /* Cascadia Code — terminal only (TerminalPanel.tsx), tried ahead of
@@ -39,43 +28,28 @@
 @import '@fontsource/amarante/latin-400.css';
 
 /* Candidate body fonts for the settings picker (design/fontOptions.ts) —
- * all self-hosted the same way as IBM Plex above, `latin-*` only, and all
+ * self-hosted the same way as the mono faces above, `latin-*` only, and
  * loaded eagerly (not lazily per-selection) since the font-family CSS var
- * can switch to any of these at runtime without a page reload. Every font
- * here was picked specifically for legibility, not aesthetics: Atkinson
- * Hyperlegible and Lexend are purpose-built/research-backed for reading
- * clarity; the rest are widely-vetted humanist sans and reading-optimized
- * serifs. Lexend has no italic style upstream, so it's skipped here (the
- * browser falls back to faux-italic if selected). */
-@import '@fontsource/atkinson-hyperlegible/latin-400.css';
-@import '@fontsource/atkinson-hyperlegible/latin-400-italic.css';
-@import '@fontsource/atkinson-hyperlegible/latin-700.css';
-@import '@fontsource/lexend/latin-400.css';
-@import '@fontsource/lexend/latin-700.css';
+ * can switch to any of these at runtime without a page reload. Manrope has
+ * no italic style upstream, so it's skipped here (the browser falls back
+ * to faux-italic if selected). */
 @import '@fontsource/inter/latin-400.css';
 @import '@fontsource/inter/latin-400-italic.css';
 @import '@fontsource/inter/latin-700.css';
 @import '@fontsource/source-sans-3/latin-400.css';
 @import '@fontsource/source-sans-3/latin-400-italic.css';
 @import '@fontsource/source-sans-3/latin-700.css';
-@import '@fontsource/public-sans/latin-400.css';
-@import '@fontsource/public-sans/latin-400-italic.css';
-@import '@fontsource/public-sans/latin-700.css';
-@import '@fontsource/work-sans/latin-400.css';
-@import '@fontsource/work-sans/latin-400-italic.css';
-@import '@fontsource/work-sans/latin-700.css';
-@import '@fontsource/noto-sans/latin-400.css';
-@import '@fontsource/noto-sans/latin-400-italic.css';
-@import '@fontsource/noto-sans/latin-700.css';
-@import '@fontsource/literata/latin-400.css';
-@import '@fontsource/literata/latin-400-italic.css';
-@import '@fontsource/literata/latin-700.css';
-@import '@fontsource/newsreader/latin-400.css';
-@import '@fontsource/newsreader/latin-400-italic.css';
-@import '@fontsource/newsreader/latin-700.css';
-@import '@fontsource/spectral/latin-400.css';
-@import '@fontsource/spectral/latin-400-italic.css';
-@import '@fontsource/spectral/latin-700.css';
+@import '@fontsource/manrope/latin-400.css';
+@import '@fontsource/manrope/latin-700.css';
+@import '@fontsource/plus-jakarta-sans/latin-400.css';
+@import '@fontsource/plus-jakarta-sans/latin-400-italic.css';
+@import '@fontsource/plus-jakarta-sans/latin-700.css';
+@import '@fontsource/dm-sans/latin-400.css';
+@import '@fontsource/dm-sans/latin-400-italic.css';
+@import '@fontsource/dm-sans/latin-700.css';
+@import '@fontsource/figtree/latin-400.css';
+@import '@fontsource/figtree/latin-400-italic.css';
+@import '@fontsource/figtree/latin-700.css';
 
 /* Noto Sans KR — Hangul fallback appended to every option above
  * (design/fontOptions.ts), since none of those faces ship Korean glyphs.
@@ -112,13 +86,20 @@ body {
   font-size: var(--font-size-base);
   -webkit-font-smoothing: antialiased;
   user-select: none;
-  scrollbar-color: var(--border-strong) var(--color-bg);
+  scrollbar-color: var(--fg-faint) var(--color-bg);
   scrollbar-width: thin;
 }
 
 /* WebKit/Chromium scrollbars (Tauri's webview on every platform is one or
  * the other) — the `scrollbar-color` above only covers Firefox-family
- * engines, which Tauri never uses, so this is what actually renders. */
+ * engines, which Tauri never uses, so this is what actually renders.
+ *
+ * Uses `--fg-faint`, not `--border-strong` — `--border-strong` is repurposed
+ * to an opaque near-black in light mode for crisp panel dividers (see
+ * tokens.css), which made the light-mode thumb a heavy solid-black bar.
+ * `--fg-faint` stays a soft translucent tint in both themes (and equals
+ * dark mode's old `--border-strong` value exactly, so dark mode is
+ * unchanged). */
 ::-webkit-scrollbar {
   width: 10px;
   height: 10px;
@@ -127,7 +108,7 @@ body {
   background: var(--color-bg);
 }
 ::-webkit-scrollbar-thumb {
-  background-color: var(--border-strong);
+  background-color: var(--fg-faint);
   background-clip: padding-box;
   border: 2px solid transparent;
   border-radius: var(--radius-none);

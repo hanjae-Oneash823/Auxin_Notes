@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { TerminalButton, TERMINAL_BUTTON_SIZE } from './TerminalButton';
+import { TerminalPanel } from './TerminalPanel';
 import {
   DEFAULT_FONT_SIZE,
   DEFAULT_PANEL_HEIGHT,
@@ -7,8 +8,7 @@ import {
   FONT_SIZE_OPTIONS,
   MIN_PANEL_HEIGHT,
   MIN_PANEL_WIDTH,
-  TerminalPanel,
-} from './TerminalPanel';
+} from './terminalPanelConstants';
 
 const POSITION_STORAGE_KEY = 'auxin.terminalButtonPos';
 const SIZE_STORAGE_KEY = 'auxin.terminalPanelSize';

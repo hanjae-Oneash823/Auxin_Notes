@@ -16,7 +16,7 @@ pub struct AppConfig {
     #[serde(default)]
     pub font_family_id: Option<String>,
     #[serde(default)]
-    pub font_size_id: Option<String>,
+    pub font_size_px: Option<f64>,
     #[serde(default)]
     pub sidebar_width_left: Option<f64>,
     #[serde(default)]

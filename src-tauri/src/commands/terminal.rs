@@ -29,6 +29,31 @@ pub struct TerminalState {
     channel: SharedChannel,
 }
 
+/// A GUI-launched process (this app included, in a packaged build opened
+/// from Finder rather than a terminal) often inherits a minimal environment
+/// with no locale set at all — confirmed true even for this dev session's
+/// own shell. A missing/non-UTF-8 `LANG` doesn't corrupt what this app sends
+/// to the pty (`terminal_write` writes exactly the UTF-8 bytes it's given),
+/// but it does break the *spawned shell's own* line editor for any
+/// multi-byte input: Korean (and other CJK) characters redraw wrong,
+/// backspace removes partial bytes instead of a whole character, and cursor
+/// math goes off — which reads as "typing doesn't work" even though the
+/// input itself was composed and transmitted correctly. Only patched when
+/// missing/non-UTF-8, so a shell that already sets its own locale (via
+/// .zshrc, a real Terminal.app profile, etc.) is left alone.
+fn ensure_utf8_locale(cmd: &mut CommandBuilder) {
+    let has_utf8_locale = std::env::var("LANG")
+        .or_else(|_| std::env::var("LC_ALL"))
+        .map(|value| {
+            let upper = value.to_uppercase();
+            upper.contains("UTF-8") || upper.contains("UTF8")
+        })
+        .unwrap_or(false);
+    if !has_utf8_locale {
+        cmd.env("LANG", "en_US.UTF-8");
+    }
+}
+
 fn default_shell() -> String {
     #[cfg(windows)]
     {
@@ -67,6 +92,7 @@ pub fn terminal_spawn(
         .map_err(|e| e.to_string())?;
 
     let mut cmd = CommandBuilder::new(default_shell());
+    ensure_utf8_locale(&mut cmd);
     if let Some(dir) = cwd {
         cmd.cwd(dir);
     }

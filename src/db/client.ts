@@ -1,6 +1,7 @@
 import Database from '@tauri-apps/plugin-sql';
 import { invoke } from '@tauri-apps/api/core';
 import initSql from './migrations/0001_init.sql?raw';
+import stickyNotesSql from './migrations/0002_sticky_notes.sql?raw';
 
 let dbInstance: Database | null = null;
 let dbVaultRoot: string | null = null;
@@ -48,13 +49,15 @@ function stripSqlLineComments(sql: string): string {
 }
 
 async function runMigrations(db: Database): Promise<void> {
-  const statements = stripSqlLineComments(initSql)
-    .split(';')
-    .map((statement) => statement.trim())
-    .filter(Boolean);
+  for (const migrationSql of [initSql, stickyNotesSql]) {
+    const statements = stripSqlLineComments(migrationSql)
+      .split(';')
+      .map((statement) => statement.trim())
+      .filter(Boolean);
 
-  for (const statement of statements) {
-    await db.execute(statement);
+    for (const statement of statements) {
+      await db.execute(statement);
+    }
   }
 
   // `CREATE TABLE IF NOT EXISTS` is a no-op against a table that already

@@ -1,0 +1,12 @@
+/* Stylesheet for the sticky-notes capture popup only (capture.html) —
+ * deliberately NOT global.css, which pulls in every theme font family the
+ * main app lets you pick between. This window only ever renders in the
+ * default UI font, so it loads just that one, keeping the popup's own
+ * bundle small for an instant-open feel. */
+@import './tokens.css';
+@import '@fontsource/inter/latin-400.css';
+@import '@fontsource/inter/latin-700.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;

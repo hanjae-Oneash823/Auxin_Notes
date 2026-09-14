@@ -1,5 +1,5 @@
 import { syntaxTree } from '@codemirror/language';
-import { RangeSetBuilder, type Text } from '@codemirror/state';
+import { type Line, RangeSetBuilder, type Text } from '@codemirror/state';
 import {
   Decoration,
   type DecorationSet,
@@ -10,11 +10,11 @@ import {
 } from '@codemirror/view';
 import type { SyntaxNode } from '@lezer/common';
 import { headingFoldChanged, isHeadingFolded, toggleHeadingFold } from './headingFoldPlugin';
+import { isListItemLine, isOrderedListItemLine } from './listEditing';
 import { HEADING_LEVEL } from './markdownHeadingUtils';
 
 const HIDDEN = Decoration.replace({});
 const CODE_LINE = Decoration.line({ class: 'cm-md-codeblock-line' });
-const LIST_LINE = Decoration.line({ class: 'cm-md-list-line' });
 
 /** `> [!type] Title` — the Obsidian/GitHub callout convention, same family
  *  as the `|width` alt-text suffix and `[[wikilink]]` syntax this app
@@ -262,19 +262,74 @@ function emitCodeBlockLines(out: DecoRange[], node: SyntaxNode, doc: Text) {
  *  nested list under it, since a `ListItem` node's span already covers its
  *  descendants) with a tighter line gap — independent of cursor position,
  *  same as the code-block banding above, since this is rhythm between rows
- *  of a list, not a hide/reveal styling choice. */
+ *  of a list, not a hide/reveal styling choice.
+ *
+ *  The one exception is the line right before non-list content resumes —
+ *  detected by raw next-line text rather than the syntax tree (same
+ *  pragmatic heuristic emitHeading's `ATX_HEADING_RE` check uses for an
+ *  identical "does the next line still belong to this construct" question)
+ *  — which gets `cm-md-list-line-last` instead, falling back to the
+ *  ordinary paragraph gap so leaving a list reads as a real block break. A
+ *  list that runs to the very end of the document is left alone: there's
+ *  nothing after it for the bigger gap to separate it from.
+ *
+ *  A second exception, for a line that's IN the ListItem's span but doesn't
+ *  itself look like list content (no marker of its own, and no leading
+ *  indentation): typing a plain paragraph directly under a list item with
+ *  no blank line between them gets folded into that item's span as a lazy
+ *  continuation, even though it's flush-left and clearly meant to be a
+ *  separate paragraph, not more of the bullet's own text. Left un-decorated,
+ *  such a line falls through to CodeMirror's own default `.cm-line`
+ *  styling — plain paragraph rhythm, no hanging indent — instead of
+ *  inheriting `cm-md-list-line`'s `padding-left`/`text-indent` meant for
+ *  genuine bullet rows, which would otherwise indent its wrapped rows (but
+ *  not its first, since text-indent only ever affects a line's first row)
+ *  for no reason visible in the source. */
 function emitListItemLines(out: DecoRange[], node: SyntaxNode, doc: Text) {
+  // Read once per item, off the line the marker itself is on (node.from) —
+  // an ordered item's numeral column needs a wider hanging-indent than a
+  // bullet's small fixed-size dot (see cm-md-list-line-ordered in
+  // theme.ts), and every line of the item (wrapped rows included) needs
+  // that same footprint, not just the one with the marker on it.
+  const isOrdered = isOrderedListItemLine(doc.lineAt(node.from).text);
   for (let pos = node.from; pos <= node.to; ) {
     const line = doc.lineAt(pos);
-    out.push({ from: line.from, to: line.from, deco: LIST_LINE });
+    const hasLeadingIndent = /^[ \t]/.test(line.text);
+    if (!hasLeadingIndent && !isListItemLine(line.text)) {
+      pos = line.to + 1;
+      continue;
+    }
+    const nextLine = line.number < doc.lines ? doc.line(line.number + 1) : null;
+    const isLastBeforeNonList = nextLine !== null && !isListItemLine(nextLine.text);
+    const classes = ['cm-md-list-line'];
+    if (isOrdered) classes.push('cm-md-list-line-ordered');
+    if (isLastBeforeNonList) classes.push('cm-md-list-line-last');
+    out.push({ from: line.from, to: line.from, deco: Decoration.line({ class: classes.join(' ') }) });
     pos = line.to + 1;
   }
 }
 
-// Cycles disc → hollow circle → square every 3 levels, the same convention
-// Notion/most outliners use so a deeply nested list still reads as nested
-// at a glance instead of every level looking identical.
-const BULLET_GLYPHS = ['•', '◦', '▪'];
+// Cycles disc → hollow ring → square → diamond every 4 levels (one shape
+// short of MAX_LIST_DEPTH_CLASS's 5 possible depths, so only the rare
+// 5th-level-deep case repeats a shape, not the much more common 4th) — the
+// same convention Notion/most outliners use so a deeply nested list still
+// reads as nested at a glance instead of every level looking identical.
+// Paired with a depth-scoped size class (cm-md-list-bullet-depth-N in
+// theme.ts) so depth is legible from size too, not shape alone.
+//
+// Drawn as fixed-geometry SVG rather than a `•`/`◦`/`▪` font glyph — a text
+// character's size and baseline position are set by whatever font happens
+// to be active, which is exactly what made the old bullets look inconsistent
+// (never quite centered on the text's x-height, and a different visual
+// weight per font). Same fixed-viewBox pattern as HEADING_ICON_SVG and
+// CALLOUT_ICON_SVG below — one shape, precisely sized and positioned via
+// CSS instead of trusting font metrics.
+const BULLET_ICON_SVGS = [
+  '<svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="3" fill="currentColor"/></svg>',
+  '<svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="2.7" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>',
+  '<svg viewBox="0 0 16 16"><rect x="5" y="5" width="6" height="6" fill="currentColor"/></svg>',
+  '<svg viewBox="0 0 16 16"><rect x="5.2" y="5.2" width="5.6" height="5.6" transform="rotate(45 8 8)" fill="currentColor"/></svg>',
+];
 const LIST_INDENT_UNIT_CHARS = 4; // matches listEditing.ts's LIST_INDENT_UNIT
 const MAX_LIST_DEPTH_CLASS = 4;
 
@@ -289,8 +344,8 @@ class ListBulletWidget extends WidgetType {
 
   toDOM() {
     const bullet = document.createElement('span');
-    bullet.className = 'cm-md-list-bullet';
-    bullet.textContent = BULLET_GLYPHS[this.depth % BULLET_GLYPHS.length];
+    bullet.className = `cm-md-list-bullet cm-md-list-bullet-depth-${this.depth}`;
+    bullet.innerHTML = BULLET_ICON_SVGS[this.depth % BULLET_ICON_SVGS.length];
     return bullet;
   }
 }
@@ -301,13 +356,25 @@ class ListBulletWidget extends WidgetType {
  *  off the marker's own raw leading whitespace (4 spaces/level, same unit
  *  `listEditing.ts` indents by) rather than the syntax tree's list-nesting
  *  depth — cheaper, and the two agree by construction since that's the only
- *  way to nest a list item in this app. */
+ *  way to nest a list item in this app.
+ *
+ *  That raw leading whitespace is then hidden outright (unconditionally,
+ *  not cursor-gated — same precedent as the bullet-widget replacement right
+ *  below, which never reveals the raw `-`/`*`/`+` character either) so the
+ *  visual indent comes entirely from `--space-list-indent` via
+ *  `cm-md-list-depth-N` in theme.ts, not from however many raw spaces
+ *  happen to be in the source rendered at a proportional font's variable
+ *  width on top of it. `listEditing.ts`'s Tab/Shift-Tab still read and
+ *  write those literal spaces — only how they're *drawn* changes here. */
 function emitListMark(out: DecoRange[], node: SyntaxNode, doc: Text) {
   const line = doc.lineAt(node.from);
   const indent = doc.sliceString(line.from, node.from);
   const depth = Math.min(Math.floor(indent.length / LIST_INDENT_UNIT_CHARS), MAX_LIST_DEPTH_CLASS);
-  if (depth > 0) {
-    out.push({ from: line.from, to: line.from, deco: Decoration.line({ class: `cm-md-list-depth-${depth}` }) });
+  // Pushed even at depth 0 now — every list line gets a base indent (see
+  // --space-list-indent-base in tokens.css), not just nested ones.
+  out.push({ from: line.from, to: line.from, deco: Decoration.line({ class: `cm-md-list-depth-${depth}` }) });
+  if (node.from > line.from) {
+    out.push({ from: line.from, to: node.from, deco: HIDDEN });
   }
 
   const markText = doc.sliceString(node.from, node.to);
@@ -315,6 +382,18 @@ function emitListMark(out: DecoRange[], node: SyntaxNode, doc: Text) {
     out.push({ from: node.from, to: node.to, deco: Decoration.replace({ widget: new ListBulletWidget(depth) }) });
   } else {
     out.push({ from: node.from, to: node.to, deco: Decoration.mark({ class: 'cm-md-list-number' }) });
+  }
+
+  // The raw space(s) between the marker and the item's content are hidden
+  // too — left alone, that whitespace is the only thing producing the
+  // marker-to-text gap, which makes it as thin and inconsistent as any
+  // other font-glyph-driven spacing (and looks especially cramped now that
+  // the bullet is drawn bigger/higher-contrast — see cm-md-list-bullet in
+  // theme.ts). `marginRight` there gives a real, controlled gap instead.
+  const afterMark = doc.sliceString(node.to, line.to);
+  const spaceMatch = /^ +/.exec(afterMark);
+  if (spaceMatch) {
+    out.push({ from: node.to, to: node.to + spaceMatch[0].length, deco: HIDDEN });
   }
 }
 
@@ -429,6 +508,45 @@ function stripQuoteMark(lineFrom: number, lineTo: number, doc: Text): number {
   return doc.sliceString(afterAngle, afterAngle + 1) === ' ' ? afterAngle + 1 : afterAngle;
 }
 
+interface CalloutSegment {
+  type: string;
+  title: string;
+  markerFrom: number;
+  markerEnd: number;
+  lines: Line[];
+}
+
+/** Splits a Blockquote node's quoted lines into one segment per `[!type]`
+ *  marker found in it. Normally a node holds exactly one callout, but
+ *  CommonMark lazy continuation merges two `> [!type]...` blocks typed with
+ *  no blank line between them into a *single* Blockquote node — without
+ *  this split, the second marker would just render as the first callout's
+ *  plain quoted body text instead of its own box (Auxin's own
+ *  Formatting Guide.md documents repeating `>` on every line, same as the
+ *  list-swallowing case above, so there's no intended usage this could
+ *  break). A quoted line before any recognized marker (plain, non-callout
+ *  blockquote content) is simply left out of every segment, matching how a
+ *  plain blockquote already renders unstyled elsewhere in this app. */
+function splitCalloutSegments(node: SyntaxNode, doc: Text): CalloutSegment[] {
+  const segments: CalloutSegment[] = [];
+  for (let pos = node.from; pos <= node.to; ) {
+    const line = doc.lineAt(pos);
+    if (doc.sliceString(line.from, line.from + 1) === '>') {
+      const afterMark = stripQuoteMark(line.from, line.to, doc);
+      const match = CALLOUT_PATTERN.exec(doc.sliceString(afterMark, line.to));
+      const type = match?.[1].toLowerCase();
+      if (type && CALLOUT_TYPES.has(type)) {
+        const markerEnd = afterMark + match![0].length - match![2].length;
+        segments.push({ type, title: match![2].trim(), markerFrom: afterMark, markerEnd, lines: [line] });
+      } else if (segments.length > 0) {
+        segments[segments.length - 1].lines.push(line);
+      }
+    }
+    pos = line.to + 1;
+  }
+  return segments;
+}
+
 function emitCallout(
   out: DecoRange[],
   node: SyntaxNode,
@@ -440,22 +558,26 @@ function emitCallout(
   const firstLine = doc.lineAt(node.from);
   if (doc.sliceString(firstLine.from, firstLine.from + 1) !== '>') return;
 
-  const afterMark = stripQuoteMark(firstLine.from, firstLine.to, doc);
-  const match = CALLOUT_PATTERN.exec(doc.sliceString(afterMark, firstLine.to));
-  const type = match?.[1].toLowerCase();
-  if (!type || !CALLOUT_TYPES.has(type)) return;
-
-  // Band every line the callout spans, regardless of cursor position — like
-  // fenced code blocks, the box shouldn't vanish while it's being edited.
-  // The first/last line each get an extra class so the border wraps the
-  // whole callout once (top edge, bottom edge) instead of striping every
-  // wrapped line with its own top-and-bottom border.
-  const lines = [];
-  for (let pos = node.from; pos <= node.to; ) {
-    const line = doc.lineAt(pos);
-    lines.push(line);
-    pos = line.to + 1;
+  for (const segment of splitCalloutSegments(node, doc)) {
+    emitCalloutSegment(out, segment, doc, selFrom, selTo, readOnly);
   }
+}
+
+function emitCalloutSegment(
+  out: DecoRange[],
+  segment: CalloutSegment,
+  doc: Text,
+  selFrom: number,
+  selTo: number,
+  readOnly: boolean,
+) {
+  const { type, title, markerFrom, markerEnd, lines } = segment;
+
+  // Band every quoted line the segment spans, regardless of cursor
+  // position — like fenced code blocks, the box shouldn't vanish while it's
+  // being edited. The first/last line each get an extra class so the border
+  // wraps the segment once (top edge, bottom edge) instead of striping
+  // every wrapped line with its own top-and-bottom border.
   lines.forEach((line, index) => {
     const classes = ['cm-callout-line', `cm-callout-line-${type}`];
     if (index === 0) classes.push('cm-callout-line-top');
@@ -463,29 +585,69 @@ function emitCallout(
     out.push({ from: line.from, to: line.from, deco: Decoration.line({ class: classes.join(' ') }) });
   });
 
-  if (!readOnly && cursorIntersects(node, selFrom, selTo)) return;
-
-  // Hide the leading `>` on every line in the block — a lazy-continuation
-  // line (valid CommonMark: a blockquote paragraph may continue without a
-  // repeated `>`) just has nothing to hide, so it's left untouched.
-  for (let pos = node.from; pos <= node.to; ) {
-    const line = doc.lineAt(pos);
-    if (doc.sliceString(line.from, line.from + 1) === '>') {
-      out.push({ from: line.from, to: stripQuoteMark(line.from, line.to, doc), deco: HIDDEN });
+  // The callout's border sits at the outer edge of its own padding — there's
+  // no room *outside* it to open up via the callout's own line classes (see
+  // theme.ts). The only place padding reads as real outside whitespace is on
+  // the ordinary, border-less line next to it, so that's decorated here
+  // instead — skipped when the segment opens/closes the document, when (for
+  // gap-before specifically) the line above is itself another segment's own
+  // last line (two directly-adjacent merged callouts have no ordinary line
+  // between them to decorate), and — for either side — when the adjacent
+  // line is itself a heading or list item.
+  //
+  // That last exclusion matters: a heading or list line gets its OWN
+  // `Decoration.line()` push elsewhere (emitHeading / emitListItemLines)
+  // with its own before/after spacing baked in. Two separate `.line()`
+  // calls landing on the same position is the same "class silently dropped"
+  // CM6 quirk documented on `.cm-md-heading-icon` above — in practice
+  // whichever push wins, the OTHER one's spacing vanishes, which is exactly
+  // what produced the "no gap between a callout and the header after it"
+  // bug this comment is here to prevent from coming back. Skipping the
+  // callout's own gap decoration in that case leaves the heading/list
+  // line's own (already-correct, level-scaled) spacing as the only
+  // decoration at that position — nothing left to collide with.
+  const firstCalloutLine = lines[0];
+  if (firstCalloutLine.from > 0) {
+    const before = doc.lineAt(firstCalloutLine.from - 1);
+    const beforeIsClaimed =
+      doc.sliceString(before.from, before.from + 1) === '>' ||
+      ATX_HEADING_RE.test(before.text) ||
+      isListItemLine(before.text);
+    if (!beforeIsClaimed) {
+      out.push({ from: before.from, to: before.from, deco: Decoration.line({ class: 'cm-callout-gap-before' }) });
     }
-    pos = line.to + 1;
+  }
+  const lastCalloutLine = lines[lines.length - 1];
+  if (lastCalloutLine.to < doc.length) {
+    const after = doc.lineAt(lastCalloutLine.to + 1);
+    const afterIsClaimed = ATX_HEADING_RE.test(after.text) || isListItemLine(after.text);
+    if (!afterIsClaimed) {
+      out.push({ from: after.from, to: after.from, deco: Decoration.line({ class: 'cm-callout-gap-after' }) });
+    }
   }
 
-  const title = match![2].trim();
-  const markerEnd = afterMark + match![0].length - match![2].length;
+  // Scoped to this segment's own line range, not the whole (possibly
+  // multi-callout) Blockquote node — editing one merged-in callout
+  // shouldn't force a neighboring one to reveal its raw markdown too.
+  const segFrom = lines[0].from;
+  const segTo = lines[lines.length - 1].to;
+  if (!readOnly && selFrom <= segTo && selTo >= segFrom) return;
+
+  // Hide the leading `>` on every line in the segment — a lazy-continuation
+  // line (valid CommonMark: a blockquote paragraph may continue without a
+  // repeated `>`) just has nothing to hide, so it's left untouched.
+  for (const line of lines) {
+    out.push({ from: line.from, to: stripQuoteMark(line.from, line.to, doc), deco: HIDDEN });
+  }
+
   // The icon always replaces `[!type]` itself; the fallback type-name label
   // only fills in when there's no custom title, so the two never show at
   // once.
-  out.push({ from: afterMark, to: markerEnd, deco: Decoration.replace({ widget: new CalloutIconWidget(type, !title) }) });
+  out.push({ from: markerFrom, to: markerEnd, deco: Decoration.replace({ widget: new CalloutIconWidget(type, !title) }) });
   if (title) {
     out.push({
       from: markerEnd,
-      to: firstLine.to,
+      to: lines[0].to,
       deco: Decoration.mark({ class: `cm-callout-title cm-callout-text-${type}` }),
     });
   }

@@ -2,9 +2,9 @@ import { create } from 'zustand';
 import { getAppConfig, patchAppConfig } from '../appConfig';
 import {
   DEFAULT_FONT_FAMILY_ID,
-  DEFAULT_FONT_SIZE_ID,
+  DEFAULT_FONT_SIZE_PX,
+  clampFontSizePx,
   findFontFamily,
-  findFontSize,
 } from '../../design/fontOptions';
 
 const DEFAULT_SIDEBAR_WIDTH_PX = 256;
@@ -12,11 +12,11 @@ export const DEFAULT_THEME_ID = 'dark';
 
 interface SettingsState {
   fontFamilyId: string;
-  fontSizeId: string;
+  fontSizePx: number;
   themeId: string;
   initFromConfig: () => Promise<void>;
   setFontFamily: (id: string) => Promise<void>;
-  setFontSize: (id: string) => Promise<void>;
+  setFontSize: (px: number) => Promise<void>;
   setTheme: (id: string) => Promise<void>;
   setSidebarWidthLeft: (widthPx: number) => Promise<void>;
   setSidebarWidthRight: (widthPx: number) => Promise<void>;
@@ -30,13 +30,12 @@ interface SettingsState {
  *  told to re-render. tokens.css's own values are just the pre-JS default
  *  (and happen to match this module's defaults, so there's no flash on a
  *  fresh install before this runs). */
-function applyFont(fontFamilyId: string, fontSizeId: string): void {
+function applyFont(fontFamilyId: string, fontSizePx: number): void {
   const family = findFontFamily(fontFamilyId);
-  const size = findFontSize(fontSizeId);
   const root = document.documentElement.style;
   root.setProperty('--font-family', family.fontFamily);
   root.setProperty('--font-family-mono', family.monoFontFamily);
-  root.setProperty('--font-size-base', `${size.px}px`);
+  root.setProperty('--font-size-base', `${fontSizePx}px`);
 }
 
 /** `data-theme` (not a CSS var override like `applyFont`) — tokens.css keys
@@ -49,17 +48,17 @@ function applyTheme(themeId: string): void {
 
 export const useSettingsStore = create<SettingsState>((set, get) => ({
   fontFamilyId: DEFAULT_FONT_FAMILY_ID,
-  fontSizeId: DEFAULT_FONT_SIZE_ID,
+  fontSizePx: DEFAULT_FONT_SIZE_PX,
   themeId: DEFAULT_THEME_ID,
 
   initFromConfig: async () => {
     const config = await getAppConfig();
     const fontFamilyId = config.font_family_id ?? DEFAULT_FONT_FAMILY_ID;
-    const fontSizeId = config.font_size_id ?? DEFAULT_FONT_SIZE_ID;
+    const fontSizePx = config.font_size_px ?? DEFAULT_FONT_SIZE_PX;
     const themeId = config.theme_id ?? DEFAULT_THEME_ID;
-    applyFont(fontFamilyId, fontSizeId);
+    applyFont(fontFamilyId, fontSizePx);
     applyTheme(themeId);
-    set({ fontFamilyId, fontSizeId, themeId });
+    set({ fontFamilyId, fontSizePx, themeId });
 
     const root = document.documentElement.style;
     root.setProperty('--width-sidebar-left', `${config.sidebar_width_left ?? DEFAULT_SIDEBAR_WIDTH_PX}px`);
@@ -67,15 +66,16 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   },
 
   setFontFamily: async (id: string) => {
-    applyFont(id, get().fontSizeId);
+    applyFont(id, get().fontSizePx);
     set({ fontFamilyId: id });
     await patchAppConfig({ font_family_id: id });
   },
 
-  setFontSize: async (id: string) => {
-    applyFont(get().fontFamilyId, id);
-    set({ fontSizeId: id });
-    await patchAppConfig({ font_size_id: id });
+  setFontSize: async (px: number) => {
+    const clamped = clampFontSizePx(px);
+    applyFont(get().fontFamilyId, clamped);
+    set({ fontSizePx: clamped });
+    await patchAppConfig({ font_size_px: clamped });
   },
 
   setTheme: async (id: string) => {

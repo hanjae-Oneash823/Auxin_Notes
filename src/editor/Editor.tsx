@@ -19,6 +19,57 @@ const AUTOSAVE_DELAY_MS = 500;
 /** Typing this in the title field self-replaces with today's date. */
 const DATE_SHORTCUT = '/d';
 
+// Scroll distance (px) over which the title fully demotes from its resting
+// size/opacity down to its minimums — an iOS-style "large title" collapse,
+// not a hard on/off toggle.
+const TITLE_COLLAPSE_DISTANCE_PX = 140;
+const TITLE_MIN_SCALE = 0.55;
+// Kept high (not the near-transparent fade an opacity-only demotion would
+// use) — a low-opacity yellow reads as washed-out/murky against the app's
+// black background, undercutting the "striking" accent color below rather
+// than just demoting it. Size (TITLE_MIN_SCALE) carries the "less
+// prominent" signal instead; opacity only trims it slightly.
+const TITLE_MIN_OPACITY = 0.9;
+// Near 1 — the collapsed title reads as a bold accent color, not a subtly
+// warmed white.
+const TITLE_MAX_TINT = 0.92;
+
+/** Maps the body's scroll offset to a title scale/opacity and applies it
+ *  directly to the DOM — driven from CodeMirror's own scroll event (already
+ *  rAF-coalesced by the caller), so this runs at most once per frame and
+ *  skips a React re-render on every scroll tick. `transform: scale` (rather
+ *  than animating `fontSize`) keeps the textarea's own layout height at its
+ *  natural, unscaled size (still driven by the auto-grow effect below) — so
+ *  the multi-line title never re-wraps mid-scroll — while `wrapperEl`, a
+ *  plain `overflow: hidden` box around it, gets its *layout* height shrunk
+ *  by that same scale factor. Because the wrapper clips in untransformed
+ *  coordinates and the textarea always paints at exactly
+ *  `naturalHeight * scale` post-transform, the two match at every scale, so
+ *  the collapsing title reclaims space as it shrinks instead of leaving a
+ *  gap behind.
+ *
+ *  The `--title-tint` custom property drives a `color-mix()` (in the JSX
+ *  style below) between `--fg-full` and the existing `--accent-warning`
+ *  token, rather than a hardcoded hex — same warm-yellow tone this app
+ *  already uses elsewhere, and it stays theme-correct across light/dark
+ *  for free since both halves of the mix are CSS vars, not JS-computed
+ *  RGB. A browser without `color-mix()` support just ignores that one
+ *  inline declaration and falls back to the `text-fg` class's plain
+ *  `--fg-full` color. */
+function applyTitleScrollProminence(
+  titleEl: HTMLTextAreaElement,
+  wrapperEl: HTMLDivElement,
+  scrollTop: number,
+) {
+  const progress = Math.min(1, Math.max(0, scrollTop / TITLE_COLLAPSE_DISTANCE_PX));
+  const scale = 1 - progress * (1 - TITLE_MIN_SCALE);
+  const opacity = 1 - progress * (1 - TITLE_MIN_OPACITY);
+  titleEl.style.transform = `scale(${scale})`;
+  titleEl.style.opacity = `${opacity}`;
+  titleEl.style.setProperty('--title-tint', `${progress * TITLE_MAX_TINT}`);
+  wrapperEl.style.height = `${titleEl.offsetHeight * scale}px`;
+}
+
 function formatDateShortcut(): string {
   const now = new Date();
   const yy = String(now.getFullYear() % 100).padStart(2, '0');
@@ -42,6 +93,10 @@ export function Editor({ path, vaultRoot, onNavigate, onRenameTitle, readOnly }:
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const titleRef = useRef<HTMLTextAreaElement>(null);
+  // Clips the title to its scroll-shrunk height (see
+  // applyTitleScrollProminence) — a separate element from titleRef so the
+  // textarea's own layout size can stay at its natural, unscaled value.
+  const titleWrapperRef = useRef<HTMLDivElement>(null);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Tracks what's actually on disk as far as this editor knows — set on
   // mount and after every successful autosave. Lets the syncVersion effect
@@ -153,17 +208,22 @@ export function Editor({ path, vaultRoot, onNavigate, onRenameTitle, readOnly }:
       lastSyncedContentRef.current = content;
 
       // Coalesces a fast scroll gesture's flood of native `scroll` events
-      // into at most one tocStore update per animation frame, rather than
-      // one per event.
+      // into at most one update per animation frame, rather than one per
+      // event — both the active TOC anchor and the title's scroll-driven
+      // prominence ride this same rAF.
       let scrollUpdateScheduled = false;
       function publishActiveAnchor(view: EditorView) {
         if (scrollUpdateScheduled) return;
         scrollUpdateScheduled = true;
         requestAnimationFrame(() => {
           scrollUpdateScheduled = false;
-          const viewportMiddle = view.scrollDOM.scrollTop + view.scrollDOM.clientHeight / 2;
+          const scrollTop = view.scrollDOM.scrollTop;
+          const viewportMiddle = scrollTop + view.scrollDOM.clientHeight / 2;
           const pos = view.lineBlockAtHeight(viewportMiddle).from;
           useTocStore.getState().setActiveAnchorPos(pos);
+          if (titleRef.current && titleWrapperRef.current) {
+            applyTitleScrollProminence(titleRef.current, titleWrapperRef.current, scrollTop);
+          }
         });
       }
 
@@ -271,30 +331,45 @@ export function Editor({ path, vaultRoot, onNavigate, onRenameTitle, readOnly }:
         className="mx-auto flex w-full items-start gap-2"
         style={{ maxWidth: '760px', padding: 'var(--space-content-md) var(--space-content-lg) 0' }}
       >
-        <textarea
-          ref={titleRef}
-          rows={1}
-          value={titleValue}
-          onChange={handleTitleChange}
-          onKeyDown={handleTitleKeyDown}
-          onBlur={() => void commitTitle()}
-          readOnly={readOnly}
-          placeholder="untitled"
-          className="w-full flex-1 resize-none overflow-hidden bg-transparent text-fg-prominent outline-none"
-          style={{
-            fontFamily: 'var(--font-family)',
-            fontSize: '2.2em',
-            fontWeight: 700,
-            lineHeight: 1.2,
-            border: '2px solid var(--border-strong)',
-            padding: 'var(--space-chrome-sm) var(--space-chrome-md)',
-            // Not a markdown `#` heading — a separate title field — but it
-            // reads as this note's first heading, so it shifts left the
-            // same amount the real ones do (theme.ts) rather than sitting
-            // flush with the body text column beneath it.
-            marginLeft: HEADING_LEFT_OFFSET_PX,
-          }}
-        />
+        <div ref={titleWrapperRef} className="w-full flex-1 overflow-hidden">
+          <textarea
+            ref={titleRef}
+            rows={1}
+            value={titleValue}
+            onChange={handleTitleChange}
+            onKeyDown={handleTitleKeyDown}
+            onBlur={() => void commitTitle()}
+            readOnly={readOnly}
+            placeholder="untitled"
+            className="w-full resize-none overflow-hidden border-0 border-b-2 border-transparent bg-transparent text-fg outline-none transition-colors duration-panel ease-panel focus:border-subtle"
+            style={{
+              fontFamily: 'var(--font-family)',
+              // Full `--fg-full` white, not the dimmer `fg-prominent` (85%
+              // opacity) used elsewhere for prominent-but-secondary text —
+              // the note's own title should read at least as bright as a
+              // heading inside its body (`.cm-md-heading-N` in theme.ts,
+              // which has no color override and is full white too), not
+              // dimmer than one.
+              fontSize: '2.6em',
+              fontWeight: 700,
+              lineHeight: 1.2,
+              // Mixes toward --accent-warning as --title-tint (set per
+              // scroll frame by applyTitleScrollProminence) rises from 0.
+              color: 'color-mix(in srgb, var(--fg-full), var(--accent-warning) calc(var(--title-tint, 0) * 100%))',
+              padding: 'var(--space-chrome-sm) var(--space-chrome-md)',
+              // Not a markdown `#` heading — a separate title field — but it
+              // reads as this note's first heading, so it shifts left the
+              // same amount the real ones do (theme.ts) rather than sitting
+              // flush with the body text column beneath it.
+              marginLeft: HEADING_LEFT_OFFSET_PX,
+              // Scaling (applyTitleScrollProminence) from the top-left corner
+              // keeps the title pinned to the same top/left position as it
+              // shrinks, rather than drifting inward from a centered origin
+              // — matching titleWrapperRef's own top-anchored clipping.
+              transformOrigin: 'top left',
+            }}
+          />
+        </div>
         {!readOnly && (
           <button
             type="button"

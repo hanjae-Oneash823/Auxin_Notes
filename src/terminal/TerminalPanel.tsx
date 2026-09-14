@@ -4,13 +4,8 @@ import { Channel, invoke } from '@tauri-apps/api/core';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
+import { FONT_SIZE_OPTIONS, MIN_PANEL_HEIGHT, MIN_PANEL_WIDTH } from './terminalPanelConstants';
 
-export const DEFAULT_PANEL_WIDTH = 640;
-export const DEFAULT_PANEL_HEIGHT = 360;
-export const MIN_PANEL_WIDTH = 320;
-export const MIN_PANEL_HEIGHT = 200;
-export const FONT_SIZE_OPTIONS = [11, 12, 13] as const;
-export const DEFAULT_FONT_SIZE: (typeof FONT_SIZE_OPTIONS)[number] = 11;
 const PANEL_GAP = 12;
 const VIEWPORT_MARGIN = 8;
 
@@ -150,6 +145,76 @@ export function TerminalPanel({
       term.write(`\r\n[failed to start terminal: ${String(error)}]\r\n`);
     });
 
+    // xterm's own composition buffering (meant to withhold onData until an
+    // IME composition finishes) doesn't help here: WKWebView (Tauri's macOS
+    // webview) never fires compositionstart/compositionupdate/
+    // compositionend at all for the Korean 2-set keyboard — confirmed by a
+    // document-level capture listener that never once saw one. Instead the
+    // OS revises already-inserted text directly (e.g. replacing a lone "ㄱ"
+    // with "그" once its vowel arrives) via the textarea's raw value, with
+    // no event marking that a revision — as opposed to a plain append — is
+    // happening. xterm's own input handling doesn't send the backspaces
+    // needed to undo what it already forwarded for the stale text, so a
+    // revised syllable reads as leftover fragments once the shell echoes it
+    // back. Since there's no event to key off, watch the textarea's value
+    // directly and diff it against what was last seen: a plain append (the
+    // overwhelming majority of normal typing, one new character with
+    // nothing removed) is left to xterm's already-correct default handling,
+    // and only an edit that removes or replaces something — the shape a
+    // revised Korean syllable actually takes — is corrected here by sending
+    // the right number of backspaces before the new text. Registered with
+    // `capture: true` on `document` (an ancestor of the textarea) so it
+    // runs before xterm's own listener on the textarea itself; DOM dispatch
+    // only orders same-target listeners by registration order regardless of
+    // their capture flag, so intercepting on the target wouldn't guarantee
+    // going first the way an ancestor's capture phase does.
+    const textarea = term.textarea;
+    let lastTextareaValue = textarea?.value ?? '';
+    function commonPrefixLength(a: string, b: string): number {
+      const max = Math.min(a.length, b.length);
+      let i = 0;
+      while (i < max && a[i] === b[i]) i++;
+      return i;
+    }
+    function handleTextareaInput(event: Event) {
+      if (!textarea || event.target !== textarea || (event as InputEvent).isComposing) return;
+      const newValue = textarea.value;
+      const prefixLength = commonPrefixLength(lastTextareaValue, newValue);
+      const deleteCount = lastTextareaValue.length - prefixLength;
+      const inserted = newValue.slice(prefixLength);
+      if (deleteCount === 0 && inserted.length <= 1) {
+        lastTextareaValue = newValue;
+        return;
+      }
+      event.stopImmediatePropagation();
+      const backspaces = '\x7f'.repeat(deleteCount);
+      void invoke('terminal_write', { data: (backspaces + inserted).normalize('NFC') });
+      textarea.value = '';
+      lastTextareaValue = '';
+    }
+    document.addEventListener('input', handleTextareaInput, true);
+
+    // The space bar gets its own dedicated path instead of going through
+    // the textarea-diffing one above: WKWebView sometimes lands two space
+    // characters in the textarea from a single physical keypress (word
+    // boundaries trigger WebKit's own spell-check/text-replacement
+    // re-evaluation, which appears to be involved) — indistinguishable,
+    // from the diff's point of view, from the user actually pressing space
+    // twice. Intercepting at `keydown` sidesteps that unreliable pipeline
+    // for this one key entirely, rather than trying to filter its effect
+    // back out downstream: `preventDefault` stops the browser from
+    // inserting anything into the textarea at all, so no `keypress`/`input`
+    // event follows for xterm's own listeners to (possibly doubly) act on,
+    // and exactly one space is sent per physical keydown.
+    function handleSpaceKeydown(event: KeyboardEvent) {
+      if (event.target !== textarea) return;
+      if (event.key !== ' ' || event.ctrlKey || event.altKey || event.metaKey) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      void invoke('terminal_write', { data: ' ' });
+    }
+    document.addEventListener('keydown', handleSpaceKeydown, true);
+
     const dataDisposable = term.onData((data) => {
       void invoke('terminal_write', { data });
     });
@@ -166,6 +231,8 @@ export function TerminalPanel({
     return () => {
       resizeObserver.disconnect();
       dataDisposable.dispose();
+      document.removeEventListener('input', handleTextareaInput, true);
+      document.removeEventListener('keydown', handleSpaceKeydown, true);
       term.dispose();
     };
     // Spawns once for this panel's lifetime (mounted once, see above) —

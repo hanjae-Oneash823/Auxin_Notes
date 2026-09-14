@@ -55,7 +55,7 @@ class ImageWidget extends WidgetType {
     // anchored to box's corner, always sits right at the image's edge.
     const outer = document.createElement('div');
     outer.style.textAlign = 'center';
-    outer.style.margin = '8px 0';
+    outer.style.margin = '5px 0';
 
     const box = document.createElement('div');
     box.style.position = 'relative';

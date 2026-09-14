@@ -18,12 +18,13 @@ const auxinHighlightStyle = HighlightStyle.define([
 
 export const auxinSyntaxHighlighting = syntaxHighlighting(auxinHighlightStyle);
 
-/** How far a heading line sits left of the content column's normal edge.
- *  Exported so Editor.tsx's title field — visually a heading (large/bold,
- *  its own line) but a separate React `<textarea>`, not a `# ` markdown
- *  node this file's own decorations ever touch — can match it, instead of
- *  silently drifting out of sync as this value gets tuned. */
-export const HEADING_LEFT_OFFSET_PX = '-32px';
+/** How far a heading line sits left of the content column's normal edge —
+ *  0, so headings align flush with body text rather than outdenting past
+ *  it. Exported so Editor.tsx's title field — visually a heading
+ *  (large/bold, its own line) but a separate React `<textarea>`, not a `# `
+ *  markdown node this file's own decorations ever touch — can match it,
+ *  instead of silently drifting out of sync as this value gets tuned. */
+export const HEADING_LEFT_OFFSET_PX = '0px';
 
 /**
  * CM6 theme sourced entirely from the design tokens (via their CSS custom
@@ -73,7 +74,11 @@ export const auxinEditorTheme = EditorView.theme(
     },
     '.cm-scroller': {
       fontFamily: 'var(--font-family)',
-      lineHeight: '1.6',
+      // Tighter than Notion's own 1.5 — deliberately, so a paragraph's
+      // wrapped rows sit close together while the *break* between separate
+      // paragraphs (space-line-gap below) reads as the more distinct jump,
+      // rather than the two being close to each other in scale.
+      lineHeight: '1.4',
       scrollbarWidth: 'none',
     },
     // Main editing area only — scoped to `.cm-scroller` so every other
@@ -101,6 +106,54 @@ export const auxinEditorTheme = EditorView.theme(
       textDecoration: 'underline',
       cursor: 'pointer',
     },
+    // `[text](url)` markdown links (markdownLinkPlugin.ts) — same treatment
+    // as a bare URL, just applied to the label instead of the raw href,
+    // since the `](url)` portion itself is hidden rather than shown.
+    '.cm-md-link': {
+      color: 'var(--accent-link)',
+      textDecoration: 'underline',
+      cursor: 'pointer',
+    },
+    // TeX rendered via KaTeX (mathPlugin.ts). Inline math sits on the text
+    // baseline like any other inline element; block math gets its own
+    // centered row with a little breathing room, same spirit as the image
+    // widget's `outer`/centering wrapper.
+    '.cm-md-math-inline': {
+      color: 'var(--color-fg)',
+    },
+    '.cm-md-math-block': {
+      display: 'block',
+      textAlign: 'center',
+      margin: '5px 0',
+      color: 'var(--color-fg)',
+    },
+    '.cm-md-math-error': {
+      color: 'var(--accent-link-broken)',
+      fontFamily: 'var(--font-family-mono)',
+      fontSize: '0.85em',
+    },
+    // GFM tables (tablePlugin.ts). `overflowX: auto` on the outer wrapper,
+    // not the table itself, so a table wider than the content column scrolls
+    // horizontally in place rather than blowing out the editor's own layout.
+    '.cm-md-table-outer': {
+      margin: '5px 0',
+      overflowX: 'auto',
+    },
+    '.cm-md-table': {
+      borderCollapse: 'collapse',
+      width: '100%',
+      fontSize: '0.9em',
+    },
+    '.cm-md-table th, .cm-md-table td': {
+      border: '1px solid var(--border-subtle)',
+      padding: '6px 10px',
+      verticalAlign: 'top',
+    },
+    '.cm-md-table th': {
+      fontWeight: '700',
+      color: 'var(--fg-prominent)',
+      borderBottomColor: 'var(--border-default)',
+    },
     // Every line gets a small gap below it — this editor renders markdown
     // source close to as-typed (not fully-reflowed HTML), so without this a
     // line the user presses Enter on runs flush against the next with no
@@ -110,6 +163,12 @@ export const auxinEditorTheme = EditorView.theme(
     // otherwise-ordinary lines, not inside a block that should read as one
     // visual unit.
     //
+    // Sized to `--space-line-gap`, not the general-purpose `--space-chrome-*`
+    // tokens UI chrome uses elsewhere — deliberately wide relative to the
+    // tightened line-height above, so a paragraph break reads as a clearly
+    // distinct jump rather than close in scale to the gap between a
+    // paragraph's own wrapped rows.
+    //
     // `padding`, deliberately not `margin`: CodeMirror measures each
     // `.cm-line`'s own rendered height (which includes padding but not
     // margin) to build its internal line-position map, which arrow-key
@@ -118,7 +177,7 @@ export const auxinEditorTheme = EditorView.theme(
     // throwing that map out of sync with the actual pixels on screen —
     // arrow-down would then land a line early or late (worse the further
     // down a long note you are, since the drift accumulates).
-    '.cm-line': { paddingBottom: 'var(--space-chrome-sm)' },
+    '.cm-line': { paddingBottom: 'var(--space-line-gap)' },
     '.cm-md-heading-1': { fontSize: '1.75em', fontWeight: '700' },
     '.cm-md-heading-2': { fontSize: '1.4em', fontWeight: '700' },
     '.cm-md-heading-3': { fontSize: '1.2em', fontWeight: '700' },
@@ -127,24 +186,38 @@ export const auxinEditorTheme = EditorView.theme(
     // line's own font-size — on a heading's larger text that compounds into
     // a much bigger gap than the same ratio gives body text. Tighter,
     // heading-appropriate leading for the heading's own (possibly wrapped)
-    // text; the gap *below* it is left to the default `.cm-line` padding
-    // above, unless `.cm-md-heading-tight-below` overrides it (see
-    // emitHeading) — a heading followed by ordinary text should get the
-    // same gap as any other line, only a subheading directly beneath it
-    // stays flush.
+    // text; the gap *below* it comes from `--space-line-gap-heading` below,
+    // unless `.cm-md-heading-tight-below` overrides it to 0 (see
+    // emitHeading) — a heading followed by ordinary text gets its own
+    // (larger-than-paragraph) after-space, but a subheading directly
+    // beneath it stays flush.
+    // `marginLeft` lives here (block-level, so it applies to *every* wrapped
+    // visual row of the heading, not just the first) rather than on the icon
+    // widget alone — a negative margin on an inline child only shifts its
+    // own row; a wrapped second line has no icon on it and would otherwise
+    // fall back to the unshifted body-text column, misaligned from line one.
+    // This does re-open a known CM6 quirk this app has hit before (a
+    // Decoration.line()'s class can be silently dropped on the line right
+    // after a hidden block region — e.g. a just-collapsed heading section —
+    // see the historical note on `.cm-md-heading-icon` below), but
+    // `paddingTop`/`lineHeight` already ride the same class today with no
+    // reported issue, so this isn't taking on new risk beyond what already
+    // exists. `lineHeight` tightened from 1.6-multiplied-of-heading-size
+    // (1.25) to 1.15 — a wrapped heading's own rows were sitting further
+    // apart than the heading's size actually called for.
     '.cm-md-heading-line-1, .cm-md-heading-line-2, .cm-md-heading-line-3, .cm-md-heading-line-4, .cm-md-heading-line-5, .cm-md-heading-line-6':
-      { lineHeight: '1.25' },
-    // Extra room *above* a heading, scaled by level — this is what makes a
-    // heading read as the start of a new section rather than just another
-    // line: a bigger header pulls a bigger break from whatever preceded it.
-    // The gap *below* stays the ordinary `.cm-line` padding (or 0 via
-    // `.cm-md-heading-tight-below`) so the heading stays visually glued to
-    // the content it introduces — asymmetric before/after spacing is the
-    // whole point.
-    '.cm-md-heading-line-1': { paddingTop: 'var(--space-content-md)' },
-    '.cm-md-heading-line-2': { paddingTop: 'var(--space-content-sm)' },
+      { lineHeight: '1.15', marginLeft: HEADING_LEFT_OFFSET_PX },
+    // Extra room *above and below* a heading, both scaled by level — a
+    // bigger header pulls a bigger break on both sides, though before stays
+    // the dominant gap at every level (see the --space-line-gap-heading-*
+    // comment in tokens.css) so a header still reads as glued to the
+    // content it introduces rather than centered between two equal gaps.
+    // `.cm-md-heading-tight-below` (below) still overrides paddingBottom to
+    // 0 when a subheading follows directly — that stays flush regardless.
+    '.cm-md-heading-line-1': { paddingTop: 'var(--space-content-xl)', paddingBottom: 'var(--space-line-gap-heading-1)' },
+    '.cm-md-heading-line-2': { paddingTop: 'var(--space-content-lg)', paddingBottom: 'var(--space-line-gap-heading-2)' },
     '.cm-md-heading-line-3, .cm-md-heading-line-4, .cm-md-heading-line-5, .cm-md-heading-line-6':
-      { paddingTop: 'var(--space-chrome-md)' },
+      { paddingTop: 'var(--space-content-md)', paddingBottom: 'var(--space-line-gap-heading-3)' },
     // `.cm-content` already pads its top edge — a heading sitting right at
     // the start of the body (nothing before it but a folded frontmatter
     // block, or nothing at all) would otherwise stack its own before-gap on
@@ -156,23 +229,15 @@ export const auxinEditorTheme = EditorView.theme(
     // not a second focal point competing with the heading text itself.
     // `border-strong` is the same muted tone `.cm-md-mark` uses for the raw
     // `#`/`**`/etc. this icon is standing in for.
-    // `marginLeft` lives on the icon widget itself, not on `.cm-line`
-    // (where it visually belongs — pulling the whole heading line left of
-    // the content column's normal edge, same as every other line's). It
-    // used to be a `.cm-md-heading-line-N` line-decoration class, but CM6
-    // silently drops a `Decoration.line()`'s class whenever that line is
-    // the one immediately following a hidden `Decoration.replace({block:
-    // true})` region — exactly the note's first heading, right after the
-    // (always block-hidden) frontmatter. Confirmed with a plain list line
-    // in the same position losing its own class the same way, so it's a
-    // CM6 quirk, not something specific to headings. A negative margin on
-    // this inline-block widget shifts it (and, since inline layout carries
-    // the saved space forward, every inline sibling after it — the heading
-    // text) left by the same amount, reproducing the old line-level effect
-    // exactly, via a `Decoration.replace` widget the bug doesn't touch.
+    // `marginLeft` used to live here rather than on `.cm-md-heading-line-N`
+    // (see that rule above for why, and for the CM6 dropped-class quirk this
+    // sidestepped — confirmed with a plain list line losing its own class
+    // the same way, so it's a general CM6 quirk, not heading-specific).
+    // Moved to the line class so a wrapped heading's second+ row gets the
+    // same left offset as its first, which an inline widget's own margin
+    // can never reach across a soft-wrap.
     '.cm-md-heading-icon': {
       display: 'inline-block',
-      marginLeft: HEADING_LEFT_OFFSET_PX,
       marginRight: '5px',
       verticalAlign: 'middle',
       transform: 'translateY(-1px)',
@@ -185,11 +250,20 @@ export const auxinEditorTheme = EditorView.theme(
     // second "expanded" icon to keep in sync with the collapsed one.
     '.cm-md-heading-icon-expanded': { transform: 'translateY(-1px) rotate(90deg)' },
     '.cm-md-heading-icon svg': { display: 'block', width: '100%', height: '100%' },
-    '.cm-md-heading-icon-1': { width: '14px', height: '14px' },
-    '.cm-md-heading-icon-2': { width: '12px', height: '12px' },
+    // `marginLeft` here is the icon's own width + the shared 5px
+    // `marginRight` above, negated — a hanging-gutter technique: it pulls
+    // the icon fully out of the inline flow so the text right after it
+    // isn't pushed rightward by the icon's footprint. Without this, line
+    // 1's text starts `marginLeft` further right than every wrapped row
+    // below it (which has no icon eating into that space), making a
+    // multi-line heading's continuation lines hang further left than its
+    // own first line instead of lining up with it.
+    '.cm-md-heading-icon-1': { width: '14px', height: '14px', marginLeft: '-19px' },
+    '.cm-md-heading-icon-2': { width: '12px', height: '12px', marginLeft: '-17px' },
     '.cm-md-heading-icon-3, .cm-md-heading-icon-4, .cm-md-heading-icon-5, .cm-md-heading-icon-6': {
       width: '11px',
       height: '11px',
+      marginLeft: '-16px',
     },
     '.cm-md-strong': { fontWeight: '700' },
     '.cm-md-emphasis': { fontStyle: 'italic' },
@@ -207,20 +281,108 @@ export const auxinEditorTheme = EditorView.theme(
     // Tighter than the ordinary `.cm-line` gap (but not flush like a code
     // block) — a list's rows should read as one grouped unit, not stack up
     // with the same breathing room ordinary paragraphs get.
-    '.cm-md-list-line': { paddingBottom: 'var(--space-chrome-xs)' },
-    // Muted, same treatment as every other syntax marker this editor
-    // styles down rather than leaving full-contrast — the bullet/number is
-    // a list-structure cue, not content competing with the item's text.
-    '.cm-md-list-bullet': { color: 'var(--fg-muted)' },
-    '.cm-md-list-number': { color: 'var(--fg-muted)', fontVariantNumeric: 'tabular-nums' },
-    // Extra room per nesting level on top of whatever raw indentation is
-    // already in the source — makes nested lists read clearly as nested at
-    // a glance instead of relying on the source's own (proportional-font,
-    // inconsistent-looking) leading spaces alone.
-    '.cm-md-list-depth-1': { paddingLeft: 'var(--space-chrome-md)' },
-    '.cm-md-list-depth-2': { paddingLeft: 'calc(var(--space-chrome-md) * 2)' },
-    '.cm-md-list-depth-3': { paddingLeft: 'calc(var(--space-chrome-md) * 3)' },
-    '.cm-md-list-depth-4': { paddingLeft: 'calc(var(--space-chrome-md) * 4)' },
+    //
+    // `paddingLeft`/`textIndent` together are the standard hanging-indent
+    // trick: the marker+gap (bullet width 9px + its 8px marginRight, see
+    // cm-md-list-bullet) only offsets line 1's *inline* content — a
+    // soft-wrapped continuation row of that same source line otherwise
+    // falls back to the block's own left edge, landing flush with the
+    // bullet instead of under line 1's text. Reserving that same 17px as
+    // padding, then pulling line 1 back by the same amount via a negative
+    // text-indent (which, unlike padding, only ever affects a block's first
+    // line), makes every row — wrapped or not — line up at one column.
+    // `margin-left` on `.cm-md-list-depth-N` below adds nesting indent on
+    // top of this without fighting it for the same `padding-left` property.
+    '.cm-md-list-line': { paddingBottom: 'var(--space-line-gap-list)', paddingLeft: '17px', textIndent: '-17px' },
+    // An ordered item's marker+gap footprint is wider than a bullet's (see
+    // cm-md-list-number's own comment: 20px numeral column + 6px gap = 26px,
+    // vs. the bullet's 17px) — overrides the hanging-indent pair above to
+    // match, so a numbered list's wrapped rows land under its own text
+    // instead of a bullet-sized indent that's too narrow for its marker.
+    '.cm-md-list-line-ordered': { paddingLeft: '26px', textIndent: '-26px' },
+    // The line right before non-list content follows (see emitListItemLines
+    // in hideSyntaxPlugin.ts) — falls back to the ordinary paragraph gap so
+    // leaving a list reads as a real block break, not a jump cut straight
+    // from the list's own tight internal rhythm.
+    // Its own token, not --space-line-gap (the ordinary paragraph gap) —
+    // slightly more than a plain paragraph break, so leaving a list reads
+    // as a slightly more deliberate block break, without also inflating
+    // ordinary paragraph-to-paragraph spacing everywhere else.
+    '.cm-md-list-line-last': { paddingBottom: 'var(--space-content-sm)' },
+    // Full-contrast, not muted — Notion's own bullets are solid, same
+    // color as the item's text, and read as a clear anchor for each item;
+    // a muted bullet at small size read as a faint mark rather than a
+    // bullet once compared side by side against that.
+    //
+    // Fixed pixel box + `vertical-align`/`transform` nudge, the same
+    // precise-positioning approach `.cm-md-heading-icon`/`.cm-callout-icon`
+    // already use — the SVG shape (ListBulletWidget in hideSyntaxPlugin.ts)
+    // is drawn to fill this box exactly, so it sits consistently centered on
+    // the text's x-height regardless of font, instead of drifting with
+    // whatever a `•` glyph's own baseline/size happens to be in the active
+    // font. Width/height/marginRight live on the depth-scoped classes below,
+    // not here, so depth is legible from icon size too.
+    '.cm-md-list-bullet': {
+      display: 'inline-block',
+      verticalAlign: 'middle',
+      transform: 'translateY(-1px)',
+      color: 'var(--color-fg)',
+    },
+    '.cm-md-list-bullet svg': { display: 'block', width: '100%', height: '100%' },
+    // Icon shrinks a px per level while `width + marginRight` is kept at a
+    // constant 17px total across all five — that sum is exactly what
+    // `.cm-md-list-line`'s `padding-left`/`text-indent` hanging-indent above
+    // reserves, so varying the size split between icon and gap (rather than
+    // the total) keeps every depth's wrapped-line alignment exact instead of
+    // drifting a few px at deeper nesting.
+    '.cm-md-list-bullet-depth-0': { width: '9px', height: '9px', marginRight: '8px' },
+    '.cm-md-list-bullet-depth-1': { width: '8px', height: '8px', marginRight: '9px' },
+    '.cm-md-list-bullet-depth-2': { width: '7px', height: '7px', marginRight: '10px' },
+    '.cm-md-list-bullet-depth-3': { width: '6px', height: '6px', marginRight: '11px' },
+    '.cm-md-list-bullet-depth-4': { width: '5px', height: '5px', marginRight: '12px' },
+    // Same controlled gap as the bullet above, now that hideSyntaxPlugin.ts
+    // hides the raw space after the marker for both — an ordered list's
+    // digits shouldn't sit any closer to their text than a bullet does.
+    //
+    // Fixed `width` + `text-align: right` (not just a `marginRight`, unlike
+    // the bullet) — a numeral's own width varies with digit count ("1." vs
+    // "12."), and without a reserved column that variation would show up as
+    // one item's text starting further right than another's. Right-aligning
+    // within that fixed column keeps the *gap* before the text constant
+    // regardless of digit count — the numbers themselves fan out to the
+    // left instead, same as a conventional `<ol>`. 20px comfortably fits
+    // two digits at this font/size; a three-digit list (rare) would clip.
+    '.cm-md-list-number': {
+      display: 'inline-block',
+      width: '20px',
+      textAlign: 'right',
+      color: 'var(--fg-muted)',
+      fontVariantNumeric: 'tabular-nums',
+      marginRight: '6px',
+    },
+    // Sole source of nesting indent — emitListMark in hideSyntaxPlugin.ts
+    // now hides each item's raw leading whitespace outright, so unlike
+    // before this isn't stacked on top of the source's own indentation; it
+    // IS the indentation, which is what makes it a fixed, predictable step
+    // per level instead of drifting with whatever whitespace happens to be
+    // in the source.
+    //
+    // `margin`, not `padding` — `.cm-md-list-line` above already owns
+    // `padding-left` for the bullet's hanging indent; a second `padding-left`
+    // here would simply overwrite it (same declaration, same element) rather
+    // than stack. Margin shifts the whole box (bullet included) right by
+    // the nesting step without touching that reserved padding, so the
+    // hanging indent still lines up correctly at every depth.
+    //
+    // Every depth — 0 included — carries `--space-list-indent-base`, so a
+    // top-level list still reads as set off from surrounding paragraph text
+    // instead of flush with it; deeper levels add the usual per-level step
+    // on top of that same base, rather than starting fresh from 0.
+    '.cm-md-list-depth-0': { marginLeft: 'var(--space-list-indent-base)' },
+    '.cm-md-list-depth-1': { marginLeft: 'calc(var(--space-list-indent-base) + var(--space-list-indent))' },
+    '.cm-md-list-depth-2': { marginLeft: 'calc(var(--space-list-indent-base) + var(--space-list-indent) * 2)' },
+    '.cm-md-list-depth-3': { marginLeft: 'calc(var(--space-list-indent-base) + var(--space-list-indent) * 3)' },
+    '.cm-md-list-depth-4': { marginLeft: 'calc(var(--space-list-indent-base) + var(--space-list-indent) * 4)' },
     '.cm-md-codeblock': {
       fontFamily: 'var(--font-family-mono)',
     },
@@ -245,16 +407,22 @@ export const auxinEditorTheme = EditorView.theme(
     // that rule applies to every wrapped line in a multi-line callout, and
     // padding there would open a gap between each of them instead of just
     // at the box's actual top and bottom edges.
-    '.cm-callout-line-top': { borderTopWidth: '1px', paddingTop: 'var(--space-chrome-xs)' },
-    // Combines the callout box's own inner bottom inset (space-chrome-xs)
-    // with the ordinary between-lines gap every line gets (space-chrome-sm,
-    // see `.cm-line` above) into one `paddingBottom` — previously the latter
-    // was a `marginBottom`, which is what has to stay padding for
-    // CodeMirror's line-height accounting (and therefore arrow-key
-    // navigation) to match what's actually on screen.
+    // A slight inner inset above the callout's own first line — this can't
+    // be a `margin` (same CodeMirror line-height/arrow-key constraint as
+    // `.cm-line` above), so it's not literally outside the border, but at
+    // this low a background opacity it reads as breathing room rather than
+    // box padding. Bumped from space-chrome-xs to space-chrome-sm to give a
+    // touch more room than the bare minimum.
+    '.cm-callout-line-top': { borderTopWidth: '1px', paddingTop: 'var(--space-chrome-sm)' },
+    // Combines the callout box's own inner bottom inset (space-chrome-sm,
+    // matching `-top` above) with the ordinary between-lines gap every line
+    // gets (space-line-gap, see `.cm-line` above) into one `paddingBottom` —
+    // previously the latter was a `marginBottom`, which is what has to stay
+    // padding for CodeMirror's line-height accounting (and therefore
+    // arrow-key navigation) to match what's actually on screen.
     '.cm-callout-line-bottom': {
       borderBottomWidth: '1px',
-      paddingBottom: 'calc(var(--space-chrome-xs) + var(--space-chrome-sm))',
+      paddingBottom: 'calc(var(--space-chrome-sm) + var(--space-line-gap))',
     },
     '.cm-callout-line-note': { backgroundColor: 'rgba(95, 208, 255, 0.08)', borderColor: 'var(--accent-link)' },
     '.cm-callout-line-tip': { backgroundColor: 'rgba(183, 255, 95, 0.08)', borderColor: 'var(--accent-tag)' },
@@ -264,6 +432,17 @@ export const auxinEditorTheme = EditorView.theme(
       borderColor: 'var(--accent-link-broken)',
     },
     '.cm-callout-line-info': { backgroundColor: 'rgba(159, 143, 255, 0.08)', borderColor: 'var(--accent-info)' },
+    // Real gap *outside* a callout's border (hideSyntaxPlugin.ts's
+    // emitCallout decorates the ordinary, border-less line just before/after
+    // one with these) — the callout's own top/bottom padding above is inside
+    // the border and can only make the tinted box itself bigger, never open
+    // space beyond it, and margin isn't safe here (see `.cm-line`'s own
+    // comment on CodeMirror's line-height/arrow-key constraint). Declared
+    // after every other line-type rule above (paragraph, heading, list, code
+    // block) so this wins the cascade no matter what kind of line happens to
+    // sit next to the callout.
+    '.cm-callout-gap-before': { paddingBottom: 'var(--space-content-sm)' },
+    '.cm-callout-gap-after': { paddingTop: 'var(--space-content-sm)' },
     // Deliberately NOT flex — a flex item ignores `vertical-align` entirely,
     // which is exactly why the two earlier attempts (a wrapper nudge, then
     // `vertical-align` on a flex child) only ever fixed the no-title case:

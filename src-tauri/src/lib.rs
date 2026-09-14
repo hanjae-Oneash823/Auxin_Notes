@@ -20,6 +20,7 @@ pub fn run() {
         .plugin(tauri_plugin_sql::Builder::default().build())
         .plugin(tauri_plugin_single_instance::init(|_app, _args, _cwd| {}))
         .plugin(tauri_plugin_os::init())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .manage(WatcherState::default())
         .manage(TerminalState::default())
         .setup(|app| {
@@ -49,6 +50,24 @@ pub fn run() {
                     let _ = terminal_kill(app_handle.state::<TerminalState>());
                 }
             });
+
+            // Sticky-notes quick-capture popup: small, borderless,
+            // always-on-top, its own window (not an overlay inside "main")
+            // so it can float above every other app, Raycast-style. Built
+            // once here, hidden, then just shown/focused/hidden by the
+            // global shortcut handler (src/sticky/useGlobalCaptureShortcut.ts)
+            // and the popup's own blur/Escape handling (CaptureWindow.tsx) —
+            // never recreated, so reopening it is instant.
+            WebviewWindowBuilder::new(app, "capture", WebviewUrl::App("capture.html".into()))
+                .title("Auxin Capture")
+                .inner_size(560.0, 140.0)
+                .decorations(false)
+                .always_on_top(true)
+                .resizable(false)
+                .skip_taskbar(true)
+                .visible(false)
+                .center()
+                .build()?;
 
             Ok(())
         })

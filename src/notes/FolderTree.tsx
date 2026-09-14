@@ -59,6 +59,13 @@ interface FolderTreeProps {
    *  same root-level "start naming a new folder" affordance as the
    *  sidebar's own `[+] folder` button. */
   onNewFolderAtRoot: () => void;
+  /** Right-clicking a folder's own row offers this — unlike
+   *  `onNewFolderAtRoot`'s typed-name input, the new folder is created
+   *  immediately (with an auto-generated unique name, see
+   *  `uniqueFolderName`) and dropped straight into the same inline rename
+   *  box `startFolderRename` already uses for double-click, so the flow is
+   *  create-then-rename rather than name-then-create. */
+  onNewFolderInFolder: (relativePath: string) => void;
 }
 
 /** Stable per-row identity, independent of its position in the flattened
@@ -86,6 +93,25 @@ function withoutPath(paths: Set<string>, path: string): Set<string> {
   const next = new Set(paths);
   next.delete(path);
   return next;
+}
+
+/** "New Folder", falling back to "New Folder 2", "New Folder 3", ... on a
+ *  collision with an existing sibling directly under `parentPath` (root, for
+ *  `''`) — used by `handleNewFolderHere` so a folder created via right-click
+ *  never collides with one already there. */
+function uniqueFolderName(folderPaths: string[], parentPath: string): string {
+  const siblingNames = new Set(
+    folderPaths
+      .filter((path) => {
+        const parent = path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '';
+        return parent === parentPath;
+      })
+      .map((path) => path.split('/').pop() ?? path),
+  );
+  if (!siblingNames.has('New Folder')) return 'New Folder';
+  let suffix = 2;
+  while (siblingNames.has(`New Folder ${suffix}`)) suffix++;
+  return `New Folder ${suffix}`;
 }
 
 /**
@@ -137,6 +163,7 @@ export function FolderTree({
   onNewNoteInFolder,
   onNewHubInFolder,
   onNewFolderAtRoot,
+  onNewFolderInFolder,
 }: FolderTreeProps) {
   const [collapsedPaths, setCollapsedPaths] = useState<Set<string>>(new Set());
   const [closingPaths, setClosingPaths] = useState<Set<string>>(new Set());
@@ -232,6 +259,23 @@ export function FolderTree({
     setRenamingFolderPath(null);
     if (!name || name === path.split('/').pop()) return;
     onRenameFolder(path, name);
+  }
+
+  /** Creates a new folder under `parentPath` immediately (auto-named to
+   *  avoid a collision with an existing sibling) and drops straight into
+   *  that folder's inline rename box — same "create then let the user
+   *  retype the name" flow `startFolderRename` gives a double-click,
+   *  applied to a brand-new folder instead of an existing one. */
+  function handleNewFolderHere(parentPath: string) {
+    const name = uniqueFolderName(folderPaths, parentPath);
+    const path = parentPath ? `${parentPath}/${name}` : name;
+    onNewFolderInFolder(path);
+    // The new folder's own row (and its rename box) only renders if
+    // `parentPath` is expanded — right-clicking a folder doesn't require it
+    // to already be open, so make sure it is.
+    setCollapsedPaths((prev) => withoutPath(prev, parentPath));
+    setRenamingFolderPath(path);
+    setFolderRenameValue(name);
   }
 
   function beginDrag(item: DragItem, event: React.MouseEvent) {
@@ -548,6 +592,7 @@ export function FolderTree({
                   },
                 }
               : { label: 'new hub here', onSelect: () => onNewHubInFolder(rowContextMenu.node.path) },
+            { label: 'new folder here', onSelect: () => handleNewFolderHere(rowContextMenu.node.path) },
             {
               label: 'rename',
               onSelect: () =>

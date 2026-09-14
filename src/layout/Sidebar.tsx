@@ -10,9 +10,11 @@ interface SidebarProps {
 }
 
 /** Shared styling for both the left (vault nav) and right (inspector)
- *  panels — same width/scroll behavior, border on the side facing the main
- *  content. The left panel drops padding on that border-facing (right)
- *  side: its FolderTree child owns its own nested scroll container, and a
+ *  panels — same width/scroll behavior. Only the left panel gets a border,
+ *  on the side facing the main content; the right panel relies on its own
+ *  `bg-panel` fill to read as a distinct region instead. The left panel
+ *  also drops padding on that border-facing (right) side: its FolderTree
+ *  child owns its own nested scroll container, and a
  *  parent's padding insets a nested child's box (and thus that child's
  *  scrollbar) away from the border — unlike a scrollbar on the panel's own
  *  box, which always renders flush to its border regardless of the panel's
@@ -35,8 +37,8 @@ export function Sidebar({ side, children, onResizeEnd }: SidebarProps) {
   return (
     <aside
       style={{ width: `var(${cssVar})` }}
-      className={`relative flex shrink-0 flex-col gap-3 overflow-y-auto overflow-x-hidden py-3 pl-3 ${
-        side === 'left' ? 'border-r-[1.5px] border-r-border-strong' : 'pr-3 border-l-[1.5px] border-l-border-strong'
+      className={`relative flex shrink-0 flex-col gap-3 overflow-y-auto overflow-x-hidden bg-panel py-3 pl-3 ${
+        side === 'left' ? 'border-r-[1.5px] border-r-border-strong' : 'pr-3'
       }`}
     >
       {children}

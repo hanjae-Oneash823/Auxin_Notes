@@ -1,11 +1,11 @@
 import { useSettingsStore } from './settingsStore';
-import { FONT_FAMILY_OPTIONS, FONT_SIZE_OPTIONS } from '../../design/fontOptions';
+import { FONT_FAMILY_OPTIONS, FONT_SIZE_PX_MIN, FONT_SIZE_PX_MAX } from '../../design/fontOptions';
 
 const selectClassName =
   'border border-border bg-bg px-2 py-1 text-fg-prominent outline-none transition-colors duration-panel ease-panel focus:border-border-strong';
 
 export function SettingsPanel() {
-  const { fontFamilyId, fontSizeId, setFontFamily, setFontSize } = useSettingsStore();
+  const { fontFamilyId, fontSizePx, setFontFamily, setFontSize } = useSettingsStore();
 
   return (
     <div
@@ -32,18 +32,18 @@ export function SettingsPanel() {
       </label>
 
       <label className="flex flex-col gap-1">
-        <span className="text-fg-muted">size</span>
-        <select
-          value={fontSizeId}
-          onChange={(event) => void setFontSize(event.target.value)}
+        <span className="text-fg-muted">size (px)</span>
+        <input
+          type="number"
+          min={FONT_SIZE_PX_MIN}
+          max={FONT_SIZE_PX_MAX}
+          value={fontSizePx}
+          onChange={(event) => {
+            const parsed = Number(event.target.value);
+            if (!Number.isNaN(parsed)) void setFontSize(parsed);
+          }}
           className={selectClassName}
-        >
-          {FONT_SIZE_OPTIONS.map((option) => (
-            <option key={option.id} value={option.id}>
-              {option.label}
-            </option>
-          ))}
-        </select>
+        />
       </label>
     </div>
   );

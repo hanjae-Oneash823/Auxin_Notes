@@ -30,7 +30,12 @@ import { TocPanel } from './notes/TocPanel';
 import { UnresolvedLinksPanel } from './notes/UnresolvedLinksPanel';
 import { SearchPanel } from './search/SearchPanel';
 import { GraphPanel } from './graph/GraphPanel';
+import { Graph2DPanel } from './graph/Graph2DPanel';
 import { TerminalLauncher } from './terminal/TerminalLauncher';
+import { useStickyStore } from './sticky/stickyStore';
+import { useGlobalCaptureShortcut } from './sticky/useGlobalCaptureShortcut';
+import { StickyBoard } from './sticky/StickyBoard';
+import { PinnedDock } from './sticky/PinnedDock';
 
 async function fetchNotes(vaultRoot: string, tag: string | null): Promise<NoteSummary[]> {
   const db = await getDb(vaultRoot);
@@ -96,6 +101,10 @@ function VaultReady({
   // Resets to writing mode on every app launch — not persisted, deliberately.
   const [isReadingMode, setIsReadingMode] = useState(false);
   const [isGraphMode, setIsGraphMode] = useState(false);
+  const [isGraph2DMode, setIsGraph2DMode] = useState(false);
+  const [isStickyMode, setIsStickyMode] = useState(false);
+  const loadStickyNotes = useStickyStore((state) => state.load);
+  useGlobalCaptureShortcut();
   // Lets a hub note's "edit source" button show the plain Editor for that one
   // tab instead of HubView — cleared implicitly by switching away (the
   // render check below compares against the currently active path, so
@@ -122,6 +131,10 @@ function VaultReady({
   useEffect(() => {
     void refreshNotes();
   }, [vaultRoot, selectedTag, syncVersion]);
+
+  useEffect(() => {
+    void loadStickyNotes(vaultRoot);
+  }, [vaultRoot, loadStickyNotes]);
 
   function openRelativePath(relativePath: string) {
     openAbsolutePath(`${vaultRoot}/${relativePath}`);
@@ -311,6 +324,20 @@ function VaultReady({
     }
   }
 
+  /** Right-click "new folder here" (FolderTree.tsx) — unlike
+   *  `commitCreateFolder` above, the caller has already picked a full,
+   *  collision-free relative path (`uniqueFolderName`), so this just
+   *  creates it directly rather than reading the toolbar's typed-name
+   *  input. */
+  async function handleCreateFolderAt(relativePath: string) {
+    try {
+      await createFolder(vaultRoot, relativePath);
+      await refreshNotes();
+    } catch (error: unknown) {
+      setRenameStatus({ message: error instanceof Error ? error.message : String(error), isError: true });
+    }
+  }
+
   const activeRelativePath = activePath ? toRelativePath(vaultRoot, activePath) : null;
   const activeNote = allNotes?.find((note) => note.path === activeRelativePath) ?? null;
 
@@ -322,7 +349,23 @@ function VaultReady({
             activeSidebarView={activeSidebarView}
             onSelectSidebarView={setActiveSidebarView}
             isGraphMode={isGraphMode}
-            onToggleGraphMode={() => setIsGraphMode((mode) => !mode)}
+            onToggleGraphMode={() => {
+              setIsGraphMode((mode) => !mode);
+              setIsGraph2DMode(false);
+              setIsStickyMode(false);
+            }}
+            isGraph2DMode={isGraph2DMode}
+            onToggleGraph2DMode={() => {
+              setIsGraph2DMode((mode) => !mode);
+              setIsGraphMode(false);
+              setIsStickyMode(false);
+            }}
+            isStickyMode={isStickyMode}
+            onToggleStickyMode={() => {
+              setIsStickyMode((mode) => !mode);
+              setIsGraphMode(false);
+              setIsGraph2DMode(false);
+            }}
           />
           <Sidebar side="left" onResizeEnd={(px) => void setSidebarWidthLeft(px)}>
             {activeSidebarView === 'files' && (
@@ -392,6 +435,7 @@ function VaultReady({
                     setIsCreatingFolder(true);
                     setNewFolderName('');
                   }}
+                  onNewFolderInFolder={(path) => void handleCreateFolderAt(path)}
                 />
               </>
             )}
@@ -405,6 +449,7 @@ function VaultReady({
                 <TagBrowser vaultRoot={vaultRoot} selectedTag={selectedTag} onSelectTag={setSelectedTag} />
               </div>
             )}
+            {activeSidebarView === 'sticky' && <PinnedDock />}
             {pendingDelete && (
               <ConfirmDialog
                 message={
@@ -434,8 +479,13 @@ function VaultReady({
       inspector={
         <Sidebar side="right" onResizeEnd={(px) => void setSidebarWidthRight(px)}>
           <TocPanel activePath={activePath} />
-          <BacklinksPanel vaultRoot={vaultRoot} noteId={activeNote?.id ?? null} onSelect={openRelativePath} />
-          <UnresolvedLinksPanel vaultRoot={vaultRoot} onSelect={openRelativePath} onChanged={refreshNotes} />
+          {/* `mt-auto` pins these to the panel's bottom edge (consuming the
+              flex column's free space above them) instead of just trailing
+              a possibly-short TOC mid-panel. */}
+          <div className="mt-auto flex flex-col gap-3">
+            <BacklinksPanel vaultRoot={vaultRoot} noteId={activeNote?.id ?? null} onSelect={openRelativePath} />
+            <UnresolvedLinksPanel vaultRoot={vaultRoot} onSelect={openRelativePath} onChanged={refreshNotes} />
+          </div>
         </Sidebar>
       }
       statusBar={
@@ -451,7 +501,7 @@ function VaultReady({
       <div className="flex h-full flex-col">
         {/* macOS gets tabs inline in the window header (TitleBar) instead —
             this fallback row only renders where that header doesn't exist. */}
-        {platform() !== 'macos' && !isGraphMode && (
+        {platform() !== 'macos' && !isGraphMode && !isGraph2DMode && (
           <TabBar
             tabs={tabItems}
             activeTabId={activeTabId}
@@ -471,6 +521,17 @@ function VaultReady({
                 setIsGraphMode(false);
               }}
             />
+          ) : isGraph2DMode ? (
+            <Graph2DPanel
+              vaultRoot={vaultRoot}
+              activePath={activeRelativePath}
+              onSelect={(path) => {
+                openRelativePath(path);
+                setIsGraph2DMode(false);
+              }}
+            />
+          ) : isStickyMode ? (
+            <StickyBoard />
           ) : activePath && activeNote?.isHub && forceEditPath !== activePath ? (
             <HubView
               key={activePath}

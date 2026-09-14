@@ -8,6 +8,7 @@ export default {
         bg: {
           DEFAULT: 'var(--color-bg)',
           chrome: 'var(--color-chrome-bg)',
+          panel: 'var(--color-panel-bg)',
           footer: 'var(--color-footer-bg)',
         },
         fg: {
@@ -59,6 +60,9 @@ export default {
     borderRadius: {
       none: 'var(--radius-none)',
       full: 'var(--radius-full)',
+      // Exception to the system law above — see tokens.css's own comment
+      // on `--radius-sticky` for why.
+      sticky: 'var(--radius-sticky)',
     },
   },
   plugins: [],

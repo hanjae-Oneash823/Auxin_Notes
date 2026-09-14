@@ -6,8 +6,16 @@ const BULLET_ITEM_RE = /^(\s*)([-*+])( +)(.*)$/;
 const ORDERED_ITEM_RE = /^(\s*)(\d+)([.)])( +)(.*)$/;
 const TASK_CONTENT_RE = /^\[[ xX]\]( +)/;
 
-function isListItemLine(text: string): boolean {
+export function isListItemLine(text: string): boolean {
   return BULLET_ITEM_RE.test(text) || ORDERED_ITEM_RE.test(text);
+}
+
+/** Distinguishes a `1.`/`1)` marker from a `-`/`*`/`+` one — used to give
+ *  ordered items their own (wider) hanging-indent footprint in
+ *  hideSyntaxPlugin.ts, since a numeral column needs more room than a
+ *  bullet's small fixed-size dot. */
+export function isOrderedListItemLine(text: string): boolean {
+  return ORDERED_ITEM_RE.test(text);
 }
 
 /** Tab/Shift-Tab nest and un-nest list items by adjusting the marker's

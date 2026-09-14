@@ -11,6 +11,11 @@
      (no visible change) but a distinct off-white in light mode, see
      `[data-theme="light"]` below. */
   --color-chrome-bg: #000000;
+  /* Left/right sidebar panels (Sidebar.tsx) — same as `--color-bg` in dark
+     (no visible change) but a subtle off-white in light mode, dialed back
+     from `--color-chrome-bg` so the panels read as a step below the
+     header/icon-rail, not equal to it. See `[data-theme="light"]` below. */
+  --color-panel-bg: #000000;
   /* Bottom status/footer strip — pure black in dark mode, dark grey in
      light mode (see `[data-theme="light"]` below). Its own text needs
      fixed light-on-dark tones for the same reason: `--fg-*` would go
@@ -56,6 +61,48 @@
   --space-content-sm: 16px;
   --space-content-md: 24px;
   --space-content-lg: 32px;
+  --space-content-xl: 40px;
+  /* Editor line-rhythm gaps only (not general UI chrome) — kept apart from
+     space-chrome-* so tuning paragraph/list line spacing can't shift button
+     or chip padding elsewhere. Sized well past the editor's own (tightened)
+     line-height leading on purpose, so a paragraph break reads as a clearly
+     distinct jump rather than a continuation of the same wrapped-line
+     rhythm. */
+  --space-line-gap: 12px;
+  /* Space after a heading, before whatever content follows it — deliberately
+     its own tokens rather than reusing --space-line-gap, so headers can get
+     more breathing room below them without inflating ordinary paragraph
+     spacing along with it. Kept well under each level's own before-gap
+     (space-content-lg/-md/-sm above, ~2.7-3x these) so a heading reads as
+     clearly glued to the content it introduces, not centered between two
+     comparable gaps. Still overridden to 0 by cm-md-heading-tight-below
+     when a subheading follows directly (see theme.ts) — that stays flush
+     regardless of these values. */
+  --space-line-gap-heading-1: 12px;
+  --space-line-gap-heading-2: 8px;
+  --space-line-gap-heading-3: 6px;
+  /* Tighter than a paragraph break, but NOT flush — items still need
+     enough daylight between them to read as distinct rows rather than
+     merging with the gap between a single item's own wrapped lines
+     (learned the hard way: 1px looked "crisp" in isolation but collapsed
+     multi-line items into an undifferentiated wall of text). Applies to
+     every list line except the last one before non-list content, which
+     falls back to --space-line-gap instead (see cm-md-list-line-last in
+     theme.ts) so leaving a list reads as a real block break, not a jump cut. */
+  --space-line-gap-list: 4px;
+  /* Sole source of list nesting indent — hideSyntaxPlugin.ts hides each
+     item's raw leading whitespace (the 4-space-per-level markdown source
+     listEditing.ts's Tab/Shift-Tab writes) and renders indent purely from
+     this token via the cm-md-list-depth-N classes below, so nesting depth
+     reads as a fixed, deterministic step regardless of what whitespace
+     happens to be in the source. 24px ≈ Notion's own per-level list step
+     scaled to this app's 18px base font. */
+  --space-list-indent: 24px;
+  /* Base indent every list line gets, top-level (depth 0) included — so a
+     list reads as visually set off from surrounding paragraph text, not
+     flush with its left edge. Per-level nesting (space-list-indent above)
+     stacks on top of this, not instead of it. */
+  --space-list-indent-base: 12px;
   /* Extra scroll room below the editor's last line, so it can be scrolled
      up away from the viewport's bottom edge rather than staying pinned. */
   --space-scroll-overscroll: 240px;
@@ -64,11 +111,29 @@
   --width-sidebar-left: 16rem;
   --width-sidebar-right: 16rem;
 
-  /* System law: no border-radius anywhere except circular status dots. */
+  /* System law: no border-radius anywhere except circular status dots —
+     --radius-sticky is the one deliberate exception (sticky notes, meant to
+     read as a looser, tactile space set apart from the rest of the app). */
   --radius-none: 0px;
   --radius-full: 9999px;
+  --radius-sticky: 6px;
 
-  --font-family: 'IBM Plex Sans', 'Noto Sans KR', ui-sans-serif, system-ui, sans-serif;
+  /* Sticky-note paper palette — fixed pastel/ink pairs, deliberately the
+     same in both themes: real paper doesn't relabel itself dark mode.
+     `--sticky-ink` is likewise theme-independent (post-it text is always
+     dark, regardless of what's behind it). */
+  --sticky-yellow-bg: #f5e6a8;
+  --sticky-yellow-border: #c9a63a;
+  --sticky-pink-bg: #f5c6d6;
+  --sticky-pink-border: #d4789d;
+  --sticky-blue-bg: #c6e0f5;
+  --sticky-blue-border: #6fa8c9;
+  --sticky-green-bg: #c8e6c0;
+  --sticky-green-border: #7cb56e;
+  --sticky-ink: #2a2a2a;
+  --sticky-shadow: 0 3px 10px rgba(0, 0, 0, 0.35);
+
+  --font-family: 'Inter', 'Noto Sans KR', ui-sans-serif, system-ui, sans-serif;
   --font-family-mono: 'IBM Plex Mono', ui-monospace, monospace;
   /* Decorative wordmark only (the "[auxin]" header label) — not a body font. */
   --font-family-brand: 'Amarante', cursive;
@@ -100,6 +165,10 @@
      warm off-white to still read as a distinct chrome layer instead of
      fusing into the page. */
   --color-chrome-bg: #f8f5f0;
+  /* Same warm off-white family as `--color-chrome-bg` above, just diluted
+     toward `--color-bg` — a subtle step between pure-white content and the
+     more saturated header/icon-rail tone, not a match for either. */
+  --color-panel-bg: #fcfbf9;
   /* Footer stays a dark strip in light mode too, but pure black reads too
      harsh against the rest of the light palette — dark grey instead. */
   --color-footer-bg: #2a2a2a;
