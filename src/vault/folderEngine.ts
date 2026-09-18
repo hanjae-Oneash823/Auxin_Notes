@@ -4,7 +4,7 @@ import { getFolderHub } from '../db/queries/hub';
 import { getDb } from '../db/client';
 import { getEditorView } from '../editor/editorRegistry';
 import { reconcileVault } from './reconcile';
-import { renameNote } from './renameEngine';
+import { relinkCanvasNotePath, renameNote } from './renameEngine';
 import { syncFile } from './syncEngine';
 
 /**
@@ -17,7 +17,7 @@ import { syncFile } from './syncEngine';
  */
 export async function moveNoteToFolder(
   vaultRoot: string,
-  note: Pick<NoteSummary, 'path'>,
+  note: Pick<NoteSummary, 'id' | 'path'>,
   targetFolderPath: string,
 ): Promise<string> {
   const fileName = note.path.split('/').pop() ?? note.path;
@@ -42,6 +42,7 @@ export async function moveNoteToFolder(
 
   await invoke('rename_note', { oldPath: oldAbsolutePath, newPath: newAbsolutePath });
   await syncFile(vaultRoot, newAbsolutePath);
+  await relinkCanvasNotePath(vaultRoot, note.id, note.path, newRelativePath);
   return newRelativePath;
 }
 

@@ -5,7 +5,7 @@
 // property mirror consumed by Tailwind and inline styles.
 
 export const colors = {
-  bg: '#000000',
+  bg: '#1A1A1C',
   fg: '#FFFFFF',
   fgOpacity: {
     faint: 0.35,
@@ -14,15 +14,15 @@ export const colors = {
     full: 1.0,
   },
   border: {
-    subtle: 'rgba(255,255,255,0.06)',
+    subtle: 'rgba(255,255,255,0.09)',
     default: 'rgba(255,255,255,0.16)',
     strong: 'rgba(255,255,255,0.35)',
   },
   accent: {
-    link: '#5FD0FF',
-    linkBroken: '#FF6B5F',
-    tag: '#B7FF5F',
-    statusDot: '#5FFF9E',
+    link: '#4DC8F2',
+    linkBroken: '#C9776B',
+    tag: '#ABE565',
+    statusDot: '#6FAE85',
     caret: '#FFFFFF',
   },
 } as const;
@@ -39,6 +39,8 @@ export const typography = {
   fontFamily: "'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif",
   monoFontFamily: "'IBM Plex Mono', ui-monospace, monospace",
   baseSize: 18,
+  // Dense chrome text (status bar) — see tokens.css's --font-size-chrome.
+  chromeFontSize: '0.72rem',
   letterSpacing: { label: '1.5px', menu: '2px' },
 } as const;
 
@@ -51,3 +53,5 @@ export const motion = {
 } as const;
 
 export const borders = { hairline: '1px solid' } as const;
+
+export const shadow = { float: '0 2px 10px rgba(0, 0, 0, 0.4)' } as const;

@@ -5,22 +5,29 @@
  * (Auxin's sister app), where tokens were redeclared ad hoc per component.
  */
 :root {
-  --color-bg: #000000;
+  /* Layered neutral dark grays (Zed-workspace reference) rather than pure
+     black — true #000 reads flat/harsh next to hairline borders; a warm
+     near-black lets --border-* actually register as a step up in value. */
+  --color-bg: #1a1a1c;
   --color-fg: #ffffff;
-  /* Header strip (TitleBar) and icon rail — same as `--color-bg` in dark
-     (no visible change) but a distinct off-white in light mode, see
+  /* Header strip (TitleBar) and icon rail — one step darker than
+     `--color-bg` in dark mode so chrome reads as a distinct layer behind
+     the content, and a distinct off-white in light mode, see
      `[data-theme="light"]` below. */
-  --color-chrome-bg: #000000;
+  --color-chrome-bg: #0a0a0b;
   /* Left/right sidebar panels (Sidebar.tsx) — same as `--color-bg` in dark
-     (no visible change) but a subtle off-white in light mode, dialed back
-     from `--color-chrome-bg` so the panels read as a step below the
-     header/icon-rail, not equal to it. See `[data-theme="light"]` below. */
-  --color-panel-bg: #000000;
-  /* Bottom status/footer strip — pure black in dark mode, dark grey in
-     light mode (see `[data-theme="light"]` below). Its own text needs
-     fixed light-on-dark tones for the same reason: `--fg-*` would go
-     near-black in light mode and vanish against this always-dark bar. */
-  --color-footer-bg: #000000;
+     (Zed keeps panel and content grounds equal, relying on hairline
+     borders rather than tone shifts to separate them) but a subtle
+     off-white in light mode, dialed back from `--color-chrome-bg` so the
+     panels read as a step below the header/icon-rail, not equal to it. See
+     `[data-theme="light"]` below. */
+  --color-panel-bg: #121214;
+  /* Bottom status/footer strip — darkest chrome layer in dark mode (below
+     `--color-chrome-bg`), dark grey in light mode (see `[data-theme="light"]`
+     below). Its own text needs fixed light-on-dark tones for the same
+     reason: `--fg-*` would go near-black in light mode and vanish against
+     this always-dark bar. */
+  --color-footer-bg: #0b0b0d;
   --color-footer-fg: rgba(255, 255, 255, 0.62);
   --color-footer-fg-prominent: rgba(255, 255, 255, 0.85);
 
@@ -42,17 +49,20 @@
   --fg-prominent: rgba(255, 255, 255, 0.85);
   --fg-full: #ffffff;
 
-  --border-subtle: rgba(255, 255, 255, 0.06);
+  --border-subtle: rgba(255, 255, 255, 0.09);
   --border-default: rgba(255, 255, 255, 0.16);
   --border-strong: rgba(255, 255, 255, 0.35);
 
-  --accent-link: #5fd0ff;
-  --accent-link-broken: #ff6b5f;
-  --accent-tag: #b7ff5f;
-  --accent-status-dot: #5fff9e;
+  /* Same hue families as before (Zed reference: keep link/tag/broken/
+     warning/info distinct, desaturate all of them off neon toward Zed's
+     restrained palette). */
+  --accent-link: #4dc8f2;
+  --accent-link-broken: #c9776b;
+  --accent-tag: #abe565;
+  --accent-status-dot: #6fae85;
   --accent-caret: #ffffff;
-  --accent-warning: #ffcf5f;
-  --accent-info: #9f8fff;
+  --accent-warning: #e9bc61;
+  --accent-info: #8b82be;
 
   --space-chrome-xs: 4px;
   --space-chrome-sm: 8px;
@@ -138,8 +148,18 @@
   /* Decorative wordmark only (the "[auxin]" header label) — not a body font. */
   --font-family-brand: 'Amarante', cursive;
   --font-size-base: 18px;
+  /* Dense chrome text (status bar) — Zed-workspace reference runs its UI
+     chrome much smaller than this app's 18px content base; kept as its own
+     token rather than a per-component inline value so any other chrome
+     surface that needs this density can share it. */
+  --font-size-chrome: 0.72rem;
   --letter-spacing-label: 1.5px;
   --letter-spacing-menu: 2px;
+
+  /* Floating chrome elevation (terminal panel + its launcher button) — Zed
+     keeps elevation minimal/flat, so this is deliberately subtler than
+     --sticky-shadow above. */
+  --shadow-float: 0 2px 10px rgba(0, 0, 0, 0.4);
 
   --ease-fast: 0.1s ease;
   --ease-snappy: 0.16s ease;
@@ -178,7 +198,7 @@
   --fg-prominent: rgba(20, 22, 26, 0.85);
   --fg-full: #14161a;
 
-  --border-subtle: rgba(20, 22, 26, 0.06);
+  --border-subtle: rgba(20, 22, 26, 0.09);
   /* Panel-separating borders (sidebar, terminal, settings, the title field)
      go near-black rather than a translucent tint in light mode — reads as
      a much crisper division on a near-white ground than a soft gray line,
@@ -186,11 +206,15 @@
   --border-default: #1c1c1c;
   --border-strong: #1c1c1c;
 
-  --accent-link: #0086b3;
-  --accent-link-broken: #c8382d;
-  --accent-tag: #4d7a1a;
-  --accent-status-dot: #1fa563;
+  --accent-link: #2b80aa;
+  --accent-link-broken: #b5564a;
+  --accent-tag: #577a30;
+  --accent-status-dot: #3f8562;
   --accent-caret: #14161a;
-  --accent-warning: #9a6a00;
-  --accent-info: #5b4bc4;
+  --accent-warning: #977120;
+  --accent-info: #6b5fa0;
+
+  /* Lighter elevation alpha than the dark-mode --shadow-float — a dark
+     drop shadow needs far less opacity to register on a near-white ground. */
+  --shadow-float: 0 2px 10px rgba(0, 0, 0, 0.15);
 }

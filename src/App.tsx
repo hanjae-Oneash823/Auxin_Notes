@@ -23,6 +23,8 @@ import { reorderIds } from './layout/tabOrder';
 import { titleFromPath } from './vault/noteTitle';
 import { HomeDashboard } from './notes/HomeDashboard';
 import { HubView } from './notes/HubView';
+import { CanvasView } from './canvas/CanvasView';
+import { CANVAS_EXTENSION } from './vault/canvasTypes';
 import { FolderTree } from './notes/FolderTree';
 import { TagBrowser } from './notes/TagBrowser';
 import { BacklinksPanel } from './notes/BacklinksPanel';
@@ -36,6 +38,8 @@ import { useStickyStore } from './sticky/stickyStore';
 import { useGlobalCaptureShortcut } from './sticky/useGlobalCaptureShortcut';
 import { StickyBoard } from './sticky/StickyBoard';
 import { PinnedDock } from './sticky/PinnedDock';
+import { useGlobalFileSearcherShortcut } from './fileSearcher/useGlobalFileSearcherShortcut';
+import { useFileSearcherNoteListener } from './fileSearcher/useFileSearcherNoteListener';
 
 async function fetchNotes(vaultRoot: string, tag: string | null): Promise<NoteSummary[]> {
   const db = await getDb(vaultRoot);
@@ -105,6 +109,13 @@ function VaultReady({
   const [isStickyMode, setIsStickyMode] = useState(false);
   const loadStickyNotes = useStickyStore((state) => state.load);
   useGlobalCaptureShortcut();
+  useGlobalFileSearcherShortcut();
+  useFileSearcherNoteListener(openRelativePath, (folderPath) => {
+    // The finder spells the vault root as '', createNote as no folder at all.
+    createNote(folderPath || undefined).catch((error: unknown) => {
+      setRenameStatus({ message: error instanceof Error ? error.message : String(error), isError: true });
+    });
+  });
   // Lets a hub note's "edit source" button show the plain Editor for that one
   // tab instead of HubView — cleared implicitly by switching away (the
   // render check below compares against the currently active path, so
@@ -153,6 +164,21 @@ function VaultReady({
     // A freshly created note is opened to be written into — reading mode
     // would make it immediately non-editable with no obvious way to start.
     setIsReadingMode(false);
+  }
+
+  /** Same shape as `createNote`, but writes a `.axcanvas` file seeded with an
+   *  empty board — an ordinary filename collision (not a deterministic
+   *  one-per-folder singleton like `createHub`) since a folder can hold many
+   *  canvases. */
+  async function createCanvas(folderPath?: string) {
+    const title = `Untitled Canvas ${Date.now()}`;
+    const relativePath = folderPath ? `${folderPath}/${title}${CANVAS_EXTENSION}` : `${title}${CANVAS_EXTENSION}`;
+    const absolutePath = `${vaultRoot}/${relativePath}`;
+    const content = JSON.stringify({ version: 1, cards: [], groups: [], arrows: [] });
+    await invoke('write_note', { path: absolutePath, content });
+    await syncFile(vaultRoot, absolutePath);
+    await refreshNotes();
+    openAbsolutePath(absolutePath);
   }
 
   /** Same shape as `createNote`, but pre-fills the fenced ```hub config block
@@ -385,6 +411,14 @@ function VaultReady({
                     </button>
                     <button
                       type="button"
+                      onClick={() => void createCanvas()}
+                      className="flex-1 border border-border px-2 py-1 text-left tracking-menu uppercase transition-colors duration-panel ease-panel hover:border-border-strong"
+                      style={{ fontSize: '0.72rem' }}
+                    >
+                      <span className="text-fg-faint">[+]</span> <span className="text-fg-prominent">canvas</span>
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => {
                         setIsCreatingFolder(true);
                         setNewFolderName('');
@@ -412,6 +446,7 @@ function VaultReady({
                   )}
                 </div>
                 <FolderTree
+                  vaultRoot={vaultRoot}
                   notes={notes ?? []}
                   folderPaths={folderPaths}
                   activePath={activeRelativePath}
@@ -431,6 +466,7 @@ function VaultReady({
                   onRevealFolder={(folderPath) => void revealFolder(folderPath)}
                   onNewNoteInFolder={(folderPath) => void createNote(folderPath)}
                   onNewHubInFolder={(folderPath) => void createHub(folderPath)}
+                  onNewCanvasInFolder={(folderPath) => void createCanvas(folderPath)}
                   onNewFolderAtRoot={() => {
                     setIsCreatingFolder(true);
                     setNewFolderName('');
@@ -532,6 +568,8 @@ function VaultReady({
             />
           ) : isStickyMode ? (
             <StickyBoard />
+          ) : activePath && activeNote?.isCanvas ? (
+            <CanvasView key={activePath} path={activePath} vaultRoot={vaultRoot} onNavigate={openRelativePath} onSynced={refreshNotes} />
           ) : activePath && activeNote?.isHub && forceEditPath !== activePath ? (
             <HubView
               key={activePath}

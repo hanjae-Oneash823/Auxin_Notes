@@ -2,8 +2,11 @@ import { invoke } from '@tauri-apps/api/core';
 import { ulid } from 'ulid';
 import type Database from '@tauri-apps/plugin-sql';
 import { getDb } from '../db/client';
+import { dirname, titleFromPath } from './noteTitle';
 import { extractLegacyFrontmatter } from './parseFrontmatter';
 import { parseHubBlock } from './parseHubBlock';
+import { CANVAS_EXTENSION } from './canvasTypes';
+import { canvasLinks, canvasSearchableBody, parseCanvasDocument } from './parseCanvas';
 import { countWords, parseInlineTags, parseLinks } from './parseLinksAndTags';
 import { pathQualifiedTarget, resolveLinkTarget } from './aliasResolution';
 import type { ParsedNote } from './types';
@@ -16,16 +19,6 @@ function hashContent(text: string): string {
     hash = Math.imul(hash, 0x01000193);
   }
   return (hash >>> 0).toString(16);
-}
-
-function titleFromPath(path: string): string {
-  const fileName = path.split('/').pop() ?? path;
-  return fileName.replace(/\.md$/, '');
-}
-
-function dirname(path: string): string {
-  const index = path.lastIndexOf('/');
-  return index === -1 ? '' : path.slice(0, index);
 }
 
 interface ParseNoteResult {
@@ -62,9 +55,42 @@ function parseNote(raw: string, path: string): ParseNoteResult {
     isHub: hubConfig !== null,
     hubFolder: hubConfig ? hubConfig.folder ?? dirname(path) : null,
     hubRecursive: hubConfig?.recursive ?? true,
+    isCanvas: false,
   };
 
   return { note, legacyId: legacy.id, strippedLegacyBlock: found };
+}
+
+/**
+ * Parses a `.axcanvas` file's raw JSON text into the same `ParsedNote` shape
+ * `parseNote` produces for markdown — see `parseCanvas.ts` for how cards'
+ * inline wikilinks and arrows become `note.links`. `content_hash` is over
+ * the *whole* raw JSON (not just searchable text), so two canvases with
+ * identical card prose but different arrows/positions never look identical
+ * to `resolveNoteId`'s rename-matching. Can throw (invalid JSON, unknown
+ * version) — callers must not let that escape into the sync loop, the same
+ * "one malformed file can't break the whole vault" guarantee `parseNote`
+ * gives markdown notes.
+ */
+function parseCanvasNote(raw: string, path: string): ParsedNote {
+  const doc = parseCanvasDocument(raw);
+  const now = new Date().toISOString();
+  const searchableBody = canvasSearchableBody(doc);
+
+  return {
+    created: now,
+    modified: now,
+    body: searchableBody,
+    title: titleFromPath(path),
+    wordCount: countWords(searchableBody),
+    contentHash: hashContent(raw),
+    links: canvasLinks(doc),
+    tags: parseInlineTags(searchableBody),
+    isHub: false,
+    hubFolder: null,
+    hubRecursive: true,
+    isCanvas: true,
+  };
 }
 
 /**
@@ -115,6 +141,22 @@ async function syncRawContent(
   raw: string,
   knownId?: string,
 ): Promise<void> {
+  if (absolutePath.endsWith(CANVAS_EXTENSION)) {
+    let note: ParsedNote;
+    try {
+      note = parseCanvasNote(raw, absolutePath);
+    } catch (error) {
+      // A malformed canvas file must not abort the rest of the sync
+      // batch/reconcile loop (reconcile.ts/rebuildIndex iterate every vault
+      // file with no per-file try/catch of their own) — skip indexing this
+      // one file and surface the failure for the user to notice/fix.
+      console.error(`[vault] skipping malformed canvas file "${absolutePath}":`, error);
+      return;
+    }
+    await upsertParsedNote(db, vaultRoot, absolutePath, note, knownId);
+    return;
+  }
+
   const { note, legacyId, strippedLegacyBlock } = parseNote(raw, absolutePath);
 
   if (strippedLegacyBlock) {
@@ -213,8 +255,8 @@ async function upsertParsedNote(
   }
 
   await db.execute(
-    `INSERT INTO notes (id, path, title, created, modified, content_hash, synced_at_ms, word_count, is_deleted, needs_attention, is_hub, hub_folder, hub_recursive)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?)
+    `INSERT INTO notes (id, path, title, created, modified, content_hash, synced_at_ms, word_count, is_deleted, needs_attention, is_hub, hub_folder, hub_recursive, is_canvas)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET
        path = excluded.path,
        title = excluded.title,
@@ -226,7 +268,8 @@ async function upsertParsedNote(
        needs_attention = 0,
        is_hub = excluded.is_hub,
        hub_folder = excluded.hub_folder,
-       hub_recursive = excluded.hub_recursive`,
+       hub_recursive = excluded.hub_recursive,
+       is_canvas = excluded.is_canvas`,
     [
       id,
       relativePath,
@@ -239,6 +282,7 @@ async function upsertParsedNote(
       note.isHub ? 1 : 0,
       note.hubFolder,
       note.hubRecursive ? 1 : 0,
+      note.isCanvas ? 1 : 0,
     ],
   );
 

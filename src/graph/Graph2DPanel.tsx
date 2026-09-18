@@ -8,8 +8,11 @@ interface Graph2DPanelProps {
   onSelect: (path: string) => void;
 }
 
-const NODE_COLOR = '#5fd0ff';
-const ACTIVE_COLOR = '#b7ff5f';
+// Mirrors --accent-link/--accent-tag (tokens.css) as literal hex — canvas 2D
+// fillStyle is consumed at draw time, not by the DOM, so it can't resolve
+// CSS custom properties.
+const NODE_COLOR = '#4dc8f2';
+const ACTIVE_COLOR = '#abe565';
 const HOVER_COLOR = '#ffffff';
 const NODE_RADIUS = 2.6;
 const HOVER_RADIUS = 4.2;

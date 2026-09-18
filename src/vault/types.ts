@@ -18,6 +18,10 @@ export interface ParsedNote {
   hubFolder: string | null;
   /** Resolved 'recursive' config for a hub note; meaningless for a non-hub note. */
   hubRecursive: boolean;
+  /** Path ends in `.axcanvas` — a spatial board note, parsed by
+   *  parseCanvas.ts instead of the markdown pipeline. Mutually exclusive
+   *  with `isHub`. */
+  isCanvas: boolean;
 }
 
 export interface ParsedLink {

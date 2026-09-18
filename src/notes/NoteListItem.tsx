@@ -1,3 +1,4 @@
+import { Stack } from '@phosphor-icons/react';
 import type { NoteSummary } from '../db/queries/notes';
 
 interface NoteListItemProps {
@@ -46,10 +47,11 @@ export function NoteListItem({
       onClick={onSelect}
       onDoubleClick={onStartRename}
       className={`flex w-full items-center gap-1 truncate px-1 text-left transition-colors duration-panel ease-panel ${
-        isActive ? 'bg-accent-link text-black' : 'text-fg-muted hover:text-fg-prominent'
+        isActive ? 'bg-accent-tag text-bg' : 'text-fg-muted hover:text-fg-prominent'
       }`}
       style={{ fontSize: '0.85rem' }}
     >
+      {note.isCanvas && <Stack size={12} weight="regular" className="shrink-0" />}
       <span className="truncate">{note.title}</span>
     </button>
   );

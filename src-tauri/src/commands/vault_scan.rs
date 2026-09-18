@@ -1,3 +1,4 @@
+use crate::vault_files::is_vault_file;
 use serde::Serialize;
 use std::fs;
 use std::path::Path;
@@ -10,9 +11,10 @@ pub struct VaultFile {
     pub size: u64,
 }
 
-/// Full recursive walk of the vault, returning every `.md` file's path, mtime,
-/// and size — no file contents are read. This is the cheap "what's out there"
-/// pass reconciliation uses to decide which files actually need reparsing.
+/// Full recursive walk of the vault, returning every tracked file's (`.md`,
+/// `.axcanvas`) path, mtime, and size — no file contents are read. This is
+/// the cheap "what's out there" pass reconciliation uses to decide which
+/// files actually need reparsing.
 #[tauri::command]
 pub fn list_vault_files(root: String) -> Result<Vec<VaultFile>, String> {
     let mut files = Vec::new();
@@ -20,7 +22,7 @@ pub fn list_vault_files(root: String) -> Result<Vec<VaultFile>, String> {
     Ok(files)
 }
 
-/// Every directory in the vault, `.md`-file-less ones included — folders are
+/// Every directory in the vault, tracked-file-less ones included — folders are
 /// otherwise only known indirectly through note paths, which misses a
 /// freshly created empty one. Same walk/skip rules as `list_vault_files`
 /// (plus the `attachments/` folder, which is app-managed storage rather
@@ -57,7 +59,7 @@ fn walk(dir: &Path, files: &mut Vec<VaultFile>, folders: &mut Option<Vec<String>
                 }
             }
             walk(&path, files, folders)?;
-        } else if path.extension().and_then(|e| e.to_str()) == Some("md") {
+        } else if is_vault_file(&path) {
             let metadata = entry.metadata()?;
             let modified_ms = metadata
                 .modified()?

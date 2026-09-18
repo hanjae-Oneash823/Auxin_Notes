@@ -68,6 +68,7 @@ async function runMigrations(db: Database): Promise<void> {
   await ensureColumn(db, 'notes', 'is_hub', 'INTEGER NOT NULL DEFAULT 0');
   await ensureColumn(db, 'notes', 'hub_folder', 'TEXT');
   await ensureColumn(db, 'notes', 'hub_recursive', 'INTEGER NOT NULL DEFAULT 1');
+  await ensureColumn(db, 'notes', 'is_canvas', 'INTEGER NOT NULL DEFAULT 0');
 }
 
 async function ensureColumn(

@@ -8,6 +8,7 @@ import { HEADING_LEFT_OFFSET_PX } from './extensions/theme';
 import { pickAndInsertImage } from './extensions/imageInsert';
 import { refreshLinkChipsEffect } from './extensions/linkChipWidget';
 import { registerEditorView, unregisterEditorView } from './editorRegistry';
+import { getScrollPosition, saveScrollPosition } from './editorScrollMemory';
 import { TocDots } from './TocDots';
 import { extractHeadings } from './tocExtract';
 import { useTocStore } from './tocStore';
@@ -240,12 +241,34 @@ export function Editor({ path, vaultRoot, onNavigate, onRenameTitle, readOnly }:
           EditorView.domEventHandlers({
             scroll: (_event, view) => {
               publishActiveAnchor(view);
+              saveScrollPosition(path, view.lineBlockAtHeight(view.scrollDOM.scrollTop).from);
             },
           }),
         ],
       });
 
-      viewRef.current = new EditorView({ state, parent: containerRef.current });
+      // App.tsx remounts this whole component on every tab switch
+      // (key={activePath}), which tears down and recreates the CodeMirror
+      // view from scratch — so returning to a tab always starts at the top
+      // unless the last position is restored here. This has to be the
+      // documented `scrollTo` constructor option, not a post-construction
+      // `view.scrollDOM.scrollTop = x`: a raw DOM write like that sits
+      // outside CodeMirror's own transaction/update pipeline, so
+      // hideSyntaxPlugin.ts's decorations (what hides `#`/`**`/list markers
+      // and renders styled markdown) never reliably rebuild for the jumped-
+      // to viewport — even a follow-up `requestMeasure()` call didn't force
+      // it, which is why the note kept showing raw markdown source until an
+      // unrelated click's real transaction resynced everything. `scrollTo`
+      // instead seeds the *initial* view state itself, so the very first
+      // render already has the right viewport and every plugin (including
+      // hideSyntaxPlugin) builds its decorations for it from the start —
+      // nothing to "catch up" after the fact.
+      const restorePos = Math.min(getScrollPosition(path), state.doc.length);
+      viewRef.current = new EditorView({
+        state,
+        parent: containerRef.current,
+        scrollTo: EditorView.scrollIntoView(restorePos, { y: 'start' }),
+      });
       registerEditorView(path, viewRef.current);
       useTocStore.getState().setHeadings(extractHeadings(state));
       publishActiveAnchor(viewRef.current);

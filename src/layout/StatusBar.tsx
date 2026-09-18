@@ -27,8 +27,8 @@ export function StatusBar({
 
   return (
     <footer
-      className="relative flex shrink-0 items-center gap-4 border-t-[1.5px] border-t-border-strong bg-bg-footer px-3 py-1.5 text-fg-footer"
-      style={{ fontSize: '0.9rem' }}
+      className="relative flex shrink-0 items-center gap-4 border-t border-t-border-strong bg-bg-footer px-3 py-1.5 text-fg-footer"
+      style={{ fontSize: 'var(--font-size-chrome)' }}
     >
       <span className="truncate">[vault: {vaultRoot}]</span>
       <span>

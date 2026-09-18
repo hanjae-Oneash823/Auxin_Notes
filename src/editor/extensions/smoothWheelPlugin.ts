@@ -5,17 +5,45 @@ import { EditorView, ViewPlugin } from '@codemirror/view';
 // macOS's own trackpad-momentum feel, not sluggish.
 const EASE_FACTOR = 0.18;
 const SNAP_THRESHOLD_PX = 0.5;
+const DOM_DELTA_PIXEL = 0;
+/** WebKit's px-per-line for a wheel mouse's line deltas (its Scrollbar::pixelsPerLineStep). */
+const WHEEL_LINE_PX = 40;
+/** A trackpad flick can land on a whole multiple of WHEEL_LINE_PX too — such
+ *  a delta arriving this soon after a known trackpad event is read as part of
+ *  that same gesture, not as a mouse notch. */
+const TRACKPAD_GESTURE_GAP_MS = 150;
+
+/**
+ * Whether a wheel event is a wheel mouse's coarse notch (worth easing) rather
+ * than a trackpad's or Magic Mouse's delta, which the OS has already smoothed
+ * with its own momentum curve — re-smoothing that adds a second, independently
+ * paced deceleration on top of one that's already settling.
+ *
+ * WKWebView exposes no device flag: `webkitDirectionInvertedFromDevice` lives
+ * on WheelEvent.prototype, so `in` finds it on every event, mouse included;
+ * and both devices report deltaMode 0 with the same wheelDeltaY/deltaY ratio.
+ * What does differ (probed against WKWebView directly): a continuous
+ * (trackpad) event's deltaY is a whole pixel count, while a mouse notch's is
+ * its accelerated line delta × WHEEL_LINE_PX — fractional in practice
+ * (e.g. 3.9996, 47.9998), or else a whole multiple of WHEEL_LINE_PX.
+ */
+export function isWheelMouseNotch(
+  event: Pick<WheelEvent, 'deltaY' | 'deltaMode'>,
+  msSinceTrackpadEvent: number,
+): boolean {
+  if (event.deltaMode !== DOM_DELTA_PIXEL) return true;
+  if (!Number.isInteger(event.deltaY)) return true;
+  return event.deltaY % WHEEL_LINE_PX === 0 && msSinceTrackpadEvent >= TRACKPAD_GESTURE_GAP_MS;
+}
 
 /**
  * Smooths mouse-wheel scrolling in the editor's own scroll container
  * (`view.scrollDOM`, i.e. `.cm-scroller`) — plain wheel-mouse input arrives
  * as large discrete deltaY jumps (one per notch), which read as choppy next
- * to a trackpad's own OS-level momentum smoothing. Every wheel delta
- * (trackpad included) feeds one shared rAF-driven lerp toward a target
- * scroll offset instead of jumping `scrollTop` immediately — trackpad input
- * stays effectively instant (its own deltas are already small and frequent,
- * so the lerp catches up within a frame or two), while a mouse's coarse
- * notches get spread into a short animated glide.
+ * to a trackpad's own OS-level momentum smoothing. Mouse notches (see
+ * isWheelMouseNotch) feed one shared rAF-driven lerp toward a target scroll
+ * offset instead of jumping `scrollTop` immediately; trackpad input scrolls
+ * natively, untouched.
  *
  * Manually setting `scrollTop` each frame (rather than, say, animating via
  * CSS) still fires the DOM's native `scroll` event, which is exactly what
@@ -28,6 +56,7 @@ export function createSmoothWheelPlugin() {
     class {
       private target: number;
       private rafId: number | null = null;
+      private lastTrackpadEventAt = Number.NEGATIVE_INFINITY;
       private readonly onWheel: (event: WheelEvent) => void;
 
       constructor(private readonly view: EditorView) {
@@ -51,16 +80,13 @@ export function createSmoothWheelPlugin() {
         // (EditorView.lineWrapping, markdownSetup.ts), and smoothing only
         // deltaY would fight a diagonal gesture's own deltaX handling.
         if (event.deltaX !== 0 || event.deltaY === 0) return;
-        // A trackpad (or Magic Mouse) already arrives pre-smoothed by the
-        // OS's own momentum curve — small, frequent, fractional deltas.
-        // Re-smoothing that through this lerp adds a second, independently
-        // paced deceleration on top of one that's already settling, which
-        // is what reads as janky rather than helpful. WKWebView sets this
-        // property on wheel events from any device with a configurable
-        // natural-scrolling direction (trackpad, Magic Mouse) and omits it
-        // entirely for a plain wheel mouse, so it's a reliable way to only
-        // intercept the coarse, unsmoothed notches that actually need it.
-        if ('webkitDirectionInvertedFromDevice' in event) return;
+        if (!isWheelMouseNotch(event, event.timeStamp - this.lastTrackpadEventAt)) {
+          // Scrolls natively — and any glide still in flight has to stop, or
+          // each frame would pull scrollTop back toward its stale target.
+          this.lastTrackpadEventAt = event.timeStamp;
+          this.cancelGlide();
+          return;
+        }
         event.preventDefault();
 
         const scroller = this.view.scrollDOM;
@@ -89,9 +115,14 @@ export function createSmoothWheelPlugin() {
         this.rafId = requestAnimationFrame(this.step);
       };
 
+      private cancelGlide() {
+        if (this.rafId !== null) cancelAnimationFrame(this.rafId);
+        this.rafId = null;
+      }
+
       destroy() {
         this.view.scrollDOM.removeEventListener('wheel', this.onWheel);
-        if (this.rafId !== null) cancelAnimationFrame(this.rafId);
+        this.cancelGlide();
       }
     },
   );

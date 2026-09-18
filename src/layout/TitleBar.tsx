@@ -30,7 +30,7 @@ export function TitleBar({ tabs, activeTabId, onSelectTab, onCloseTab, onReorder
   return (
     <div
       data-tauri-drag-region="deep"
-      className="flex h-9 shrink-0 items-center border-b-[1.5px] border-b-border-strong bg-bg-chrome"
+      className="flex h-9 shrink-0 items-center border-b border-b-border-strong bg-bg-chrome"
     >
       <div
         data-tauri-drag-region

@@ -1,3 +1,4 @@
+use crate::vault_files::is_vault_file;
 use notify::RecursiveMode;
 use notify_debouncer_full::{new_debouncer, DebounceEventResult, Debouncer, RecommendedCache};
 use serde::Serialize;
@@ -21,7 +22,7 @@ pub struct VaultChangeEvent {
 
 /// Starts (or restarts, if already watching) a debounced recursive watch over
 /// `path`. Rust never parses the changed file — it only tells the frontend
-/// which `.md` path changed and how; parsing/indexing is TypeScript's job.
+/// which tracked path changed and how; parsing/indexing is TypeScript's job.
 #[tauri::command]
 pub fn watch_vault(app: AppHandle, path: String) -> Result<(), String> {
     let state = app.state::<WatcherState>();
@@ -57,7 +58,7 @@ pub fn watch_vault(app: AppHandle, path: String) -> Result<(), String> {
                 };
 
                 for changed_path in &debounced.event.paths {
-                    if changed_path.extension().and_then(|e| e.to_str()) != Some("md") {
+                    if !is_vault_file(changed_path) {
                         continue;
                     }
                     batch.push(VaultChangeEvent {

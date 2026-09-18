@@ -21,6 +21,7 @@ export default defineConfig(async () => ({
       input: {
         main: resolve(__dirname, "index.html"),
         capture: resolve(__dirname, "capture.html"),
+        filesearcher: resolve(__dirname, "filesearcher.html"),
       },
     },
   },

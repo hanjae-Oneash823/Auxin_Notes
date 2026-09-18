@@ -5,6 +5,7 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 import { FONT_SIZE_OPTIONS, MIN_PANEL_HEIGHT, MIN_PANEL_WIDTH } from './terminalPanelConstants';
+import { getPastedImageFile, savePastedImageForTerminal } from './terminalImagePaste';
 
 const PANEL_GAP = 12;
 const VIEWPORT_MARGIN = 8;
@@ -117,12 +118,16 @@ export function TerminalPanel({
       lineHeight: 1,
       letterSpacing: 0,
       cursorBlink: true,
+      // Literal hex, not var(--...) — xterm's theme option is consumed at
+      // construction time by its own canvas renderer, not the DOM, so it
+      // can't resolve CSS custom properties. Kept in sync by hand with
+      // tokens.css's --color-bg/--fg-full/--accent-link.
       theme: {
-        background: '#000000',
+        background: '#1a1a1c',
         foreground: '#ffffff',
-        cursor: '#5fd0ff',
-        cursorAccent: '#000000',
-        selectionBackground: 'rgba(255, 255, 255, 0.25)',
+        cursor: '#4dc8f2',
+        cursorAccent: '#1a1a1c',
+        selectionBackground: 'rgba(255, 255, 255, 0.18)',
       },
     });
     termRef.current = term;
@@ -215,6 +220,47 @@ export function TerminalPanel({
     }
     document.addEventListener('keydown', handleSpaceKeydown, true);
 
+    // xterm's own `paste` listener on the textarea reads the clipboard and
+    // forwards it straight to the pty (via `onData` below), but it never
+    // calls `preventDefault()` — so the browser's default paste action also
+    // runs, inserting the same text into the textarea. That insertion fires
+    // an `input` event, which `handleTextareaInput` above would forward a
+    // second time, pasting everything twice. Preventing the default here
+    // stops that second insertion while leaving xterm's own paste handling
+    // (which only needs `clipboardData`, not the textarea's value) intact.
+    //
+    // A pasted *image* has no text for xterm's listener to forward at all
+    // (there's nothing in `clipboardData` under `text/plain`), so it's
+    // handled entirely here instead: save it into the vault's attachments
+    // folder (same `save_image_data` command the note editor's own image
+    // paste uses) and feed the resulting path into the terminal as if it
+    // had been typed/pasted directly — the same trick real terminals
+    // (iTerm2, Kitty) play, which is what lets a CLI like Claude Code
+    // running inside this terminal pick it up as an image attachment.
+    function handlePaste(event: ClipboardEvent) {
+      if (event.target !== textarea) return;
+      event.preventDefault();
+
+      const imageFile = getPastedImageFile(event.clipboardData);
+      if (!imageFile) return;
+      // Also handled by xterm's own listener otherwise (see above) — an
+      // image paste has nothing for that listener to do, but some clipboard
+      // sources carry a text/file-path fallback alongside the image data,
+      // and pasting both would be confusing.
+      event.stopImmediatePropagation();
+
+      if (!vaultRoot) {
+        term.write('\r\n[open a vault to paste images]\r\n');
+        return;
+      }
+      void savePastedImageForTerminal(vaultRoot, imageFile)
+        .then((quotedPath) => term.paste(quotedPath))
+        .catch((error: unknown) => {
+          term.write(`\r\n[failed to paste image: ${String(error)}]\r\n`);
+        });
+    }
+    document.addEventListener('paste', handlePaste, true);
+
     const dataDisposable = term.onData((data) => {
       void invoke('terminal_write', { data });
     });
@@ -233,6 +279,7 @@ export function TerminalPanel({
       dataDisposable.dispose();
       document.removeEventListener('input', handleTextareaInput, true);
       document.removeEventListener('keydown', handleSpaceKeydown, true);
+      document.removeEventListener('paste', handlePaste, true);
       term.dispose();
     };
     // Spawns once for this panel's lifetime (mounted once, see above) —
@@ -303,7 +350,7 @@ export function TerminalPanel({
         width,
         height,
         visibility: isOpen ? 'visible' : 'hidden',
-        boxShadow: '0 4px 24px rgba(0, 0, 0, 0.6)',
+        boxShadow: 'var(--shadow-float)',
       }}
     >
       <div className="flex shrink-0 items-center justify-between border-b border-border px-2 py-1">

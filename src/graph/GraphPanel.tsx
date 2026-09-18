@@ -12,8 +12,11 @@ interface GraphPanelProps {
   onSelect: (path: string) => void;
 }
 
-const NODE_COLOR = '#5fd0ff';
-const ACTIVE_COLOR = '#b7ff5f';
+// Mirrors --accent-link/--accent-tag (tokens.css) as literal hex — three.js
+// material colors are consumed by the WebGL renderer, not the DOM, so they
+// can't resolve CSS custom properties.
+const NODE_COLOR = '#4dc8f2';
+const ACTIVE_COLOR = '#abe565';
 const HOVER_COLOR = '#ffffff';
 const WIGGLE_AMOUNT = 0.9;
 const WIGGLE_SPEED = 0.6;
@@ -113,18 +116,18 @@ function GraphScene({
           [0, minTime - axisPadding, 0],
           [0, maxTime + axisPadding, 0],
         ]}
-        color="#ff5f5f"
+        color="#c9776b"
         transparent
         opacity={0.9}
         lineWidth={2.5}
       />
       <Billboard position={[0, maxTime + axisPadding, 0]}>
-        <Text fontSize={3.2} color="#ff5f5f" fillOpacity={0.9} anchorX="center" anchorY="bottom">
+        <Text fontSize={3.2} color="#c9776b" fillOpacity={0.9} anchorX="center" anchorY="bottom">
           [now]
         </Text>
       </Billboard>
       <Billboard position={[0, minTime - axisPadding, 0]}>
-        <Text fontSize={3.2} color="#ff5f5f" fillOpacity={0.9} anchorX="center" anchorY="top">
+        <Text fontSize={3.2} color="#c9776b" fillOpacity={0.9} anchorX="center" anchorY="top">
           [past]
         </Text>
       </Billboard>
@@ -238,7 +241,7 @@ export function GraphPanel({ vaultRoot, activePath, onSelect }: GraphPanelProps)
   return (
     <div className="h-full w-full">
       <Canvas orthographic frameloop="demand" camera={{ near: 0.1, far: 5000 }}>
-        <fog attach="fog" args={['#000000', fogNear, fogFar]} />
+        <fog attach="fog" args={['#1a1a1c', fogNear, fogFar]} />
         <GraphScene nodes={nodes} edges={edges} activePath={activePath} onSelect={onSelect} />
         <FixedAxisControls fitExtent={fitExtent} />
       </Canvas>

@@ -18,7 +18,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["protocol-asset"] }
+tauri = { version = "2", features = ["protocol-asset", "macos-private-api"] }
 tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -32,4 +32,19 @@ tauri-plugin-global-shortcut = "2"
 notify-debouncer-full = "0.7.0"
 base64 = "0.23.1"
 portable-pty = "0.8"
+
+# macOS-only: converts the "filesearcher" popup into a non-activating
+# NSPanel so it can receive keystrokes without making the app "active" —
+# see src-tauri/src/commands/file_searcher_panel.rs for why.
+[target.'cfg(target_os = "macos")'.dependencies]
+tauri-nspanel = { git = "https://github.com/ahkohd/tauri-nspanel", branch = "v2.1" }
+
+# Keeps target/ small: full debuginfo on every dependency is what made each
+# stale build copy multiple GB. Our own crate keeps line tables, so panics
+# and backtraces still show file:line.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
 

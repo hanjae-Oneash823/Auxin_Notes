@@ -1,7 +1,9 @@
 mod commands;
+mod vault_files;
 mod watcher;
 
 use commands::app_config::{get_app_config, set_app_config};
+use commands::file_searcher_panel::{hide_file_searcher_panel, show_file_searcher_panel};
 use commands::fs_ops::{
     allow_vault_asset_access, copy_image_file, delete_folder, delete_note, ensure_dir, move_folder, read_note,
     rename_note, save_image_data, write_note,
@@ -13,7 +15,7 @@ use watcher::{watch_vault, WatcherState};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
@@ -22,7 +24,15 @@ pub fn run() {
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .manage(WatcherState::default())
-        .manage(TerminalState::default())
+        .manage(TerminalState::default());
+
+    // Registers `tauri_nspanel`'s own managed state (a panel registry keyed
+    // by window label) — required before `commands::file_searcher_panel`'s
+    // `to_panel()`/`get_webview_panel()` calls below can use it.
+    #[cfg(target_os = "macos")]
+    let builder = builder.plugin(tauri_nspanel::init());
+
+    builder
         .setup(|app| {
             let win_builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
                 .title("Auxin")
@@ -69,6 +79,27 @@ pub fn run() {
                 .center()
                 .build()?;
 
+            // Visual file searcher popup: same "capture" pattern — small,
+            // borderless, always-on-top, its own window so it floats above
+            // every other app rather than requiring "main" to come forward.
+            // Shown/focused/hidden by the global shortcut handler
+            // (src/fileSearcher/useGlobalFileSearcherShortcut.ts) and the
+            // popup's own blur/Escape handling (FileSearcherOverlay.tsx).
+            // Built by `file_searcher_panel::setup` rather than inline here
+            // — see that module for why (converts it to a native macOS
+            // panel, built once here and only shown/hidden afterwards).
+            //
+            // Deferred to the event loop's next turn instead of built inline:
+            // converting it to a panel while `setup` was still running left
+            // every webview (main's included) with no page loaded on a cold
+            // start — a plain white/empty window.
+            let panel_app = app.handle().clone();
+            app.handle().run_on_main_thread(move || {
+                if let Err(error) = commands::file_searcher_panel::setup(&panel_app) {
+                    eprintln!("failed to build the file searcher panel: {error}");
+                }
+            })?;
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -87,6 +118,8 @@ pub fn run() {
             watch_vault,
             get_app_config,
             set_app_config,
+            show_file_searcher_panel,
+            hide_file_searcher_panel,
             terminal_spawn,
             terminal_write,
             terminal_resize,

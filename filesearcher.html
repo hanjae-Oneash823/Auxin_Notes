@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Auxin File Searcher</title>
+    <!-- Transparent from the very first frame — the window itself is
+         transparent (see src-tauri/src/lib.rs), so items float directly
+         over the desktop with no card behind them; each item supplies its
+         own opaque background (FileSearcherNode.tsx). -->
+    <style>
+      html,
+      body {
+        margin: 0;
+        background: transparent;
+      }
+    </style>
+  </head>
+
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/fileSearcher/fileSearcherMain.tsx"></script>
+  </body>
+</html>

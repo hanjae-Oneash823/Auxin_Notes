@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
-import { Files, Graph, MagnifyingGlass, Note, PushPin, ShareNetwork, Tag } from '@phosphor-icons/react';
+import { Compass, Files, Graph, MagnifyingGlass, Note, PushPin, ShareNetwork, Tag } from '@phosphor-icons/react';
+import { openFileSearcherWindow } from '../fileSearcher/openFileSearcherWindow';
 
 export type SidebarView = 'files' | 'search' | 'tags' | 'sticky';
 
@@ -53,12 +54,15 @@ export function IconRail({
   onToggleStickyMode,
 }: IconRailProps) {
   return (
-    <nav className="flex w-rail shrink-0 flex-col items-center gap-3 border-r-[1.5px] border-r-border-strong bg-bg-chrome px-2 py-3">
+    <nav className="flex w-rail shrink-0 flex-col items-center gap-3 border-r border-r-border-strong bg-bg-chrome px-2 py-3">
       <RailButton title="files" isActive={activeSidebarView === 'files'} onClick={() => onSelectSidebarView('files')}>
         <Files size={22} weight="regular" />
       </RailButton>
       <RailButton title="search" isActive={activeSidebarView === 'search'} onClick={() => onSelectSidebarView('search')}>
         <MagnifyingGlass size={22} weight="regular" />
+      </RailButton>
+      <RailButton title="open the visual file searcher (Cmd+Ctrl+F)" isActive={false} onClick={() => void openFileSearcherWindow()}>
+        <Compass size={22} weight="regular" />
       </RailButton>
       <RailButton title="tags" isActive={activeSidebarView === 'tags'} onClick={() => onSelectSidebarView('tags')}>
         <Tag size={22} weight="regular" />

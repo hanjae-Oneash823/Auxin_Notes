@@ -424,14 +424,14 @@ export const auxinEditorTheme = EditorView.theme(
       borderBottomWidth: '1px',
       paddingBottom: 'calc(var(--space-chrome-sm) + var(--space-line-gap))',
     },
-    '.cm-callout-line-note': { backgroundColor: 'rgba(95, 208, 255, 0.08)', borderColor: 'var(--accent-link)' },
-    '.cm-callout-line-tip': { backgroundColor: 'rgba(183, 255, 95, 0.08)', borderColor: 'var(--accent-tag)' },
-    '.cm-callout-line-warning': { backgroundColor: 'rgba(255, 207, 95, 0.08)', borderColor: 'var(--accent-warning)' },
+    '.cm-callout-line-note': { backgroundColor: 'rgba(77, 200, 242, 0.08)', borderColor: 'var(--accent-link)' },
+    '.cm-callout-line-tip': { backgroundColor: 'rgba(171, 229, 101, 0.08)', borderColor: 'var(--accent-tag)' },
+    '.cm-callout-line-warning': { backgroundColor: 'rgba(233, 188, 97, 0.08)', borderColor: 'var(--accent-warning)' },
     '.cm-callout-line-danger': {
-      backgroundColor: 'rgba(255, 107, 95, 0.08)',
+      backgroundColor: 'rgba(201, 119, 107, 0.08)',
       borderColor: 'var(--accent-link-broken)',
     },
-    '.cm-callout-line-info': { backgroundColor: 'rgba(159, 143, 255, 0.08)', borderColor: 'var(--accent-info)' },
+    '.cm-callout-line-info': { backgroundColor: 'rgba(139, 130, 190, 0.08)', borderColor: 'var(--accent-info)' },
     // Real gap *outside* a callout's border (hideSyntaxPlugin.ts's
     // emitCallout decorates the ordinary, border-less line just before/after
     // one with these) — the callout's own top/bottom padding above is inside

@@ -1,8 +1,8 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Capability for the main window and the sticky-notes capture popup",
-  "windows": ["main", "capture"],
+  "description": "Capability for the main window, the sticky-notes capture popup, and the file searcher popup",
+  "windows": ["main", "capture", "filesearcher"],
   "permissions": [
     "core:default",
     "core:window:allow-start-dragging",

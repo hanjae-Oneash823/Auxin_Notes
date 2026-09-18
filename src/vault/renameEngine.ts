@@ -1,7 +1,10 @@
 import { invoke } from '@tauri-apps/api/core';
 import { getDb } from '../db/client';
 import { getEditorView } from '../editor/editorRegistry';
+import { CANVAS_EXTENSION } from './canvasTypes';
+import { parseCanvasDocument } from './parseCanvas';
 import { syncFile, syncFileAsRename } from './syncEngine';
+import type { CanvasCard, CanvasDocument } from './canvasTypes';
 
 export interface RenameFailure {
   path: string;
@@ -101,6 +104,8 @@ export async function renameNote(
     impacted.map((row) => row.path),
     oldTitle,
     title,
+    oldRelativePath,
+    newRelativePath,
   );
 
   return {
@@ -126,13 +131,22 @@ export async function relinkAcrossFiles(
   relativePaths: string[],
   oldTarget: string,
   newTarget: string,
+  /** Only known by `renameNote` (renaming an existing note) — `relinkRawTarget`
+   *  has no path to give, since it's retargeting a raw string that need not
+   *  correspond to any real note yet. Without these, a canvas's promoted-card
+   *  `content.path` fields are left untouched (nothing to safely match). */
+  oldPath?: string,
+  newPath?: string,
 ): Promise<{ updatedCount: number; failures: RenameFailure[] }> {
   const failures: RenameFailure[] = [];
   let updatedCount = 0;
 
   for (const relativePath of relativePaths) {
     try {
-      const rewrote = await rewriteLinksInFile(vaultRoot, `${vaultRoot}/${relativePath}`, oldTarget, newTarget);
+      const absolutePath = `${vaultRoot}/${relativePath}`;
+      const rewrote = relativePath.endsWith(CANVAS_EXTENSION)
+        ? await rewriteCanvasFile(vaultRoot, absolutePath, oldTarget, newTarget, oldPath ?? null, newPath ?? null)
+        : await rewriteLinksInFile(vaultRoot, absolutePath, oldTarget, newTarget);
       if (rewrote) updatedCount++;
     } catch (error: unknown) {
       failures.push({ path: relativePath, error: error instanceof Error ? error.message : String(error) });
@@ -178,6 +192,51 @@ export async function relinkRawTarget(
 }
 
 /**
+ * Updates any canvas card whose `content.path` points at `noteId`, after its
+ * path changes without its title changing — a folder move/drag
+ * (`folderEngine.ts`'s `moveNoteToFolder`), which `renameNote`'s own
+ * propagation never runs for (title-based wikilinks don't need it — see
+ * `moveNoteToFolder`'s doc comment — but a canvas card's `content.path` is a
+ * literal path, not a title, so it goes stale on a path-only move too).
+ *
+ * Reuses `renameNote`'s own impact-set query: a canvas arrow pointing at a
+ * promoted note resolves via that note's *title* (`parseCanvas.ts`), so its
+ * `links.target_id` is unaffected by a path-only move — the canvases that
+ * reference this note are exactly the same set either way. Best-effort: the
+ * folder move itself has already succeeded on disk by the time this runs,
+ * so a failure here is swallowed rather than surfaced as a failed move — a
+ * stale reference shows up as a broken "open" affordance on that one card,
+ * not a mysterious move failure.
+ */
+export async function relinkCanvasNotePath(
+  vaultRoot: string,
+  noteId: string,
+  oldRelativePath: string,
+  newRelativePath: string,
+): Promise<void> {
+  if (oldRelativePath === newRelativePath) return;
+
+  const db = await getDb(vaultRoot);
+  const noteRows = await db.select<{ title: string }[]>('SELECT title FROM notes WHERE id = ?', [noteId]);
+  const title = noteRows[0]?.title ?? '';
+
+  const impacted = await db.select<{ path: string }[]>(
+    `SELECT DISTINCT n.path FROM links l
+     JOIN notes n ON n.id = l.source_id
+     WHERE l.target_id = ? AND n.is_deleted = 0 AND n.is_canvas = 1`,
+    [noteId],
+  );
+
+  for (const { path: canvasRelativePath } of impacted) {
+    try {
+      await rewriteCanvasFile(vaultRoot, `${vaultRoot}/${canvasRelativePath}`, title, title, oldRelativePath, newRelativePath);
+    } catch {
+      // See doc comment above — deliberately not collected/reported.
+    }
+  }
+}
+
+/**
  * Rewrites every `[[Old Title]]` / `[[Old Title|alias]]` occurrence in one
  * file to the new title, preserving any `|alias` text. If the file is
  * currently open in the editor, the live buffer is patched via a targeted
@@ -210,6 +269,68 @@ async function rewriteLinksInFile(
   return true;
 }
 
+/**
+ * Canvas counterpart to `rewriteLinksInFile` — JSON-structure-aware instead
+ * of a plain-text regex, since a canvas's arrows and promoted-card
+ * references aren't literal `[[bracket]]` text the way a note body's links
+ * are (see `parseCanvas.ts`'s `canvasLinks`). Rewrites three things in one
+ * pass over the parsed document: an inline card's own `[[oldTitle]]` body
+ * text (the same substitution `rewriteLinksInFile` does for a note body —
+ * safe here too, since it's still just a string field), a promoted card's
+ * `content.path` when it matches `oldPath` (only when the caller knows one
+ * — `relinkRawTarget` doesn't), and a ghost card's `title` when it matches
+ * `oldTitle`. A malformed canvas file is skipped (nothing safe to rewrite),
+ * same "don't break the batch over one bad file" stance as the rest of the
+ * vault-sync/rename pipeline.
+ *
+ * Always reads/writes the file on disk directly — unlike `rewriteLinksInFile`,
+ * there's no open-CanvasView-buffer equivalent of `editorRegistry` to patch
+ * in place, so a rename landing mid-edit of an already-open canvas is a
+ * known, accepted gap (rare: the canvas's own 500ms autosave usually beats
+ * a separate rename action to disk).
+ */
+async function rewriteCanvasFile(
+  vaultRoot: string,
+  absolutePath: string,
+  oldTitle: string,
+  newTitle: string,
+  oldPath: string | null,
+  newPath: string | null,
+): Promise<boolean> {
+  const raw = await invoke<string>('read_note', { path: absolutePath });
+  let doc: CanvasDocument;
+  try {
+    doc = parseCanvasDocument(raw);
+  } catch {
+    return false;
+  }
+
+  let changed = false;
+  const cards: CanvasCard[] = doc.cards.map((card) => {
+    if (card.content.type === 'inline') {
+      const edits = buildRenameEdits(card.content.body, oldTitle, newTitle);
+      if (edits.length === 0) return card;
+      changed = true;
+      return { ...card, content: { ...card.content, body: applyEditsToText(card.content.body, edits) } };
+    }
+    if (card.content.type === 'note' && oldPath && newPath && card.content.path === oldPath) {
+      changed = true;
+      return { ...card, content: { ...card.content, path: newPath } };
+    }
+    if (card.content.type === 'ghost' && card.content.title === oldTitle) {
+      changed = true;
+      return { ...card, content: { ...card.content, title: newTitle } };
+    }
+    return card;
+  });
+
+  if (!changed) return false;
+
+  await invoke('write_note', { path: absolutePath, content: JSON.stringify({ ...doc, cards }) });
+  await syncFile(vaultRoot, absolutePath);
+  return true;
+}
+
 /** Pure and independently testable: given a document's text, produces the
  *  set of edits that retarget every `[[oldTitle]]`/`[[oldTitle|alias]]` to
  *  `newTitle`, leaving unrelated links untouched. */
@@ -232,8 +353,12 @@ function applyEditsToText(text: string, edits: WikilinkEdit[]): string {
   return result;
 }
 
+/** Preserves the original file's own extension (`.md` or `.axcanvas`) rather
+ *  than assuming `.md` — renaming a canvas note must not silently turn it
+ *  into a markdown file. */
 function replaceFileNameInPath(relativePath: string, newTitle: string): string {
   const slashIndex = relativePath.lastIndexOf('/');
   const dir = slashIndex >= 0 ? relativePath.slice(0, slashIndex + 1) : '';
-  return `${dir}${newTitle}.md`;
+  const extension = relativePath.endsWith(CANVAS_EXTENSION) ? CANVAS_EXTENSION : '.md';
+  return `${dir}${newTitle}${extension}`;
 }

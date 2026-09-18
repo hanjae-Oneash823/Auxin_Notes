@@ -1,9 +1,11 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { motion } from 'framer-motion';
 import { CaretRight, Folder, FolderOpen, SquaresFour } from '@phosphor-icons/react';
 import { NoteListItem } from './NoteListItem';
+import { getDb } from '../db/client';
 import type { NoteSummary } from '../db/queries/notes';
+import { getCollapsedFolders, setCollapsedFolders } from '../db/queries/folderState';
 import { buildFolderTree, flattenTree, type FolderNode, type TreeRow } from '../vault/folderTree';
 import { ContextMenu } from '../layout/ContextMenu';
 
@@ -33,6 +35,7 @@ const ROW_ANIM_MS = 300;
 type DragItem = { kind: 'note'; note: NoteSummary } | { kind: 'folder'; path: string };
 
 interface FolderTreeProps {
+  vaultRoot: string;
   notes: NoteSummary[];
   folderPaths: string[];
   activePath: string | null;
@@ -55,6 +58,7 @@ interface FolderTreeProps {
   onRevealFolder: (folderPath: string) => void;
   onNewNoteInFolder: (folderPath: string) => void;
   onNewHubInFolder: (folderPath: string) => void;
+  onNewCanvasInFolder: (folderPath: string) => void;
   /** Right-clicking empty tree space (below/between rows) offers this —
    *  same root-level "start naming a new folder" affordance as the
    *  sidebar's own `[+] folder` button. */
@@ -143,6 +147,7 @@ function uniqueFolderName(folderPaths: string[], parentPath: string): string {
  * playing, instead of yanking them out of the tree mid-animation.
  */
 export function FolderTree({
+  vaultRoot,
   notes,
   folderPaths,
   activePath,
@@ -162,6 +167,7 @@ export function FolderTree({
   onRevealFolder,
   onNewNoteInFolder,
   onNewHubInFolder,
+  onNewCanvasInFolder,
   onNewFolderAtRoot,
   onNewFolderInFolder,
 }: FolderTreeProps) {
@@ -173,6 +179,32 @@ export function FolderTree({
   const [draggedItem, setDraggedItem] = useState<DragItem | null>(null);
   const [dropTargetId, setDropTargetId] = useState<string | null>(null);
   const [rowContextMenu, setRowContextMenu] = useState<RowContextMenu | null>(null);
+
+  // Tracks which `vaultRoot` `collapsedPaths` has finished loading its
+  // persisted state for — the persist effect below must not fire on the
+  // initial (empty, "everything expanded") state before that load lands, or
+  // it would overwrite the vault's saved collapsed set on every app start.
+  const loadedForVaultRootRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    loadedForVaultRootRef.current = null;
+    let cancelled = false;
+    void (async () => {
+      const db = await getDb(vaultRoot);
+      const paths = await getCollapsedFolders(db);
+      if (cancelled) return;
+      setCollapsedPaths(new Set(paths));
+      loadedForVaultRootRef.current = vaultRoot;
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [vaultRoot]);
+
+  useEffect(() => {
+    if (loadedForVaultRootRef.current !== vaultRoot) return;
+    void getDb(vaultRoot).then((db) => setCollapsedFolders(db, [...collapsedPaths]));
+  }, [vaultRoot, collapsedPaths]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const dragStateRef = useRef<{ startX: number; startY: number; moved: boolean } | null>(null);
@@ -452,8 +484,8 @@ export function FolderTree({
           <button
             type="button"
             onClick={() => onSelect(row.note.path)}
-            className={`flex w-full items-center gap-1.5 truncate border-l-2 border-l-accent-link py-0.5 pl-1.5 text-left transition-colors duration-panel ease-panel ${
-              activePath === row.note.path ? 'bg-accent-link text-black' : 'text-accent-link hover:text-fg-prominent'
+            className={`flex w-full items-center gap-1.5 truncate border-l-2 border-l-accent-tag py-0.5 pl-1.5 text-left transition-colors duration-panel ease-panel ${
+              activePath === row.note.path ? 'bg-accent-tag text-bg' : 'text-accent-link hover:text-fg-prominent'
             }`}
             style={{ fontSize: '0.82rem' }}
           >
@@ -582,6 +614,7 @@ export function FolderTree({
           onClose={() => setRowContextMenu(null)}
           items={[
             { label: 'new note here', onSelect: () => onNewNoteInFolder(rowContextMenu.node.path) },
+            { label: 'new canvas here', onSelect: () => onNewCanvasInFolder(rowContextMenu.node.path) },
             // A folder either has a hub or doesn't — this swaps to "open
             // hub" once one exists rather than offering to create a second.
             rowContextMenu.node.hub
@@ -613,6 +646,7 @@ export function FolderTree({
           onClose={() => setRowContextMenu(null)}
           items={[
             { label: 'new note', onSelect: () => onNewNoteInFolder('') },
+            { label: 'new canvas', onSelect: () => onNewCanvasInFolder('') },
             root.hub
               ? {
                   label: 'open hub',

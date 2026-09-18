@@ -77,7 +77,7 @@ export function TerminalButton({ x, y, isOpen, onMove, onMoveEnd, onToggle }: Te
         width: TERMINAL_BUTTON_SIZE,
         height: TERMINAL_BUTTON_SIZE,
         touchAction: 'none',
-        boxShadow: '0 2px 12px rgba(0, 0, 0, 0.5)',
+        boxShadow: 'var(--shadow-float)',
       }}
     >
       <TerminalIcon size={22} weight="regular" />
