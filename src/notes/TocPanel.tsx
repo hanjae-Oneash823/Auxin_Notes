@@ -13,7 +13,15 @@ interface TocPanelProps {
 export function TocPanel({ activePath }: TocPanelProps) {
   const headings = useTocStore((state) => state.headings);
 
-  if (!activePath || headings.length === 0) return null;
+  if (!activePath || headings.length === 0) {
+    return (
+      <SidebarPacket title="Contents">
+        <span className="px-2 py-1 text-fg-faint" style={{ fontSize: '0.78rem' }}>
+          No headings
+        </span>
+      </SidebarPacket>
+    );
+  }
 
   function goToHeading(pos: number) {
     const view = activePath ? getEditorView(activePath) : undefined;

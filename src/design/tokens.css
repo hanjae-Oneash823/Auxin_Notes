@@ -127,9 +127,9 @@
   --width-sidebar-left: 16rem;
   --width-sidebar-right: 16rem;
   /* Max width of the centered content column (editor, hubs, home). Widens
-     while the left sidebar is hidden — see `[data-sidebar-hidden]` below.
+     while a sidebar is hidden — see `[data-left-hidden]` below.
      The transition value must stay in sync with SIDEBAR_TOGGLE_MS/EASING in
-     layout/sidebarVisibilityStore.ts so the column grows with the slide. */
+     layout/panelLayoutStore.ts so the column grows with the slide. */
   --width-content-max: 760px;
   --transition-content-width: max-width 220ms cubic-bezier(0.32, 0.72, 0, 1);
 
@@ -185,9 +185,14 @@
   --border-hairline: 1px solid;
 }
 
-/* Set on <html> by sidebarVisibilityStore while the left sidebar is hidden. */
-:root[data-sidebar-hidden='true'] {
+/* Set on <html> by panelLayoutStore while a sidebar is hidden — one hidden
+   panel frees ~16rem, both free roughly double. */
+:root[data-left-hidden='true'],
+:root[data-right-hidden='true'] {
   --width-content-max: 960px;
+}
+:root[data-left-hidden='true'][data-right-hidden='true'] {
+  --width-content-max: 1100px;
 }
 
 /* Explicit opt-in only (Settings → Theme) — not tied to

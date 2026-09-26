@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import { SidebarSimple } from '@phosphor-icons/react';
 import { platform } from '@tauri-apps/plugin-os';
-import { SIDEBAR_TOGGLE_EASING, SIDEBAR_TOGGLE_MS, useSidebarVisibilityStore } from './sidebarVisibilityStore';
+import { SIDEBAR_TOGGLE_EASING, SIDEBAR_TOGGLE_MS, usePanelLayoutStore } from './panelLayoutStore';
 import { TabBar, type TabItem } from './TabBar';
 
 interface TitleBarProps {
@@ -28,9 +28,10 @@ interface TitleBarProps {
  *  render nothing here — App.tsx falls back to a standalone `TabBar` row
  *  above the editor there instead. */
 export function TitleBar({ tabs, activeTabId, onSelectTab, onCloseTab, onReorderTabs }: TitleBarProps) {
-  const isLeftSidebarOpen = useSidebarVisibilityStore((state) => state.isLeftSidebarOpen);
-  const toggleLeftSidebar = useSidebarVisibilityStore((state) => state.toggleLeftSidebar);
-  const isToggling = useSidebarVisibilityStore((state) => state.isToggling);
+  const isLeftSidebarOpen = usePanelLayoutStore((state) => state.isLeftSidebarOpen);
+  const isRightSidebarOpen = usePanelLayoutStore((state) => state.isRightSidebarOpen);
+  const toggleSidebar = usePanelLayoutStore((state) => state.toggleSidebar);
+  const isToggling = usePanelLayoutStore((state) => state.isToggling);
   const contentRef = useRef<HTMLDivElement>(null);
   // Natural width of the label + button — the collapsed width of the label
   // block. Measured (not hardcoded) because the brand font's width isn't
@@ -74,7 +75,7 @@ export function TitleBar({ tabs, activeTabId, onSelectTab, onCloseTab, onReorder
           <button
             type="button"
             data-tauri-drag-region="false"
-            onClick={toggleLeftSidebar}
+            onClick={() => toggleSidebar('left')}
             aria-label={isLeftSidebarOpen ? 'Hide sidebar' : 'Show sidebar'}
             title={isLeftSidebarOpen ? 'Hide sidebar' : 'Show sidebar'}
             className={`flex h-6 w-6 items-center justify-center rounded-row transition-colors duration-panel ease-panel hover:bg-border-subtle hover:text-fg-prominent ${
@@ -93,6 +94,18 @@ export function TitleBar({ tabs, activeTabId, onSelectTab, onCloseTab, onReorder
         onReorder={onReorderTabs}
         className="min-w-0 flex-1 pr-2"
       />
+      <button
+        type="button"
+        data-tauri-drag-region="false"
+        onClick={() => toggleSidebar('right')}
+        aria-label={isRightSidebarOpen ? 'Hide right panel' : 'Show right panel'}
+        title={isRightSidebarOpen ? 'Hide right panel' : 'Show right panel'}
+        className={`mr-3 flex h-6 w-6 shrink-0 items-center justify-center rounded-row transition-colors duration-panel ease-panel hover:bg-border-subtle hover:text-fg-prominent ${
+          isRightSidebarOpen ? 'text-fg-faint' : 'text-fg-muted'
+        }`}
+      >
+        <SidebarSimple size={16} mirrored />
+      </button>
     </div>
   );
 }

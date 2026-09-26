@@ -10,6 +10,9 @@ export interface AppConfig {
   sidebar_width_left: number | null;
   sidebar_width_right: number | null;
   theme_id: string | null;
+  left_sidebar_hidden: boolean | null;
+  right_sidebar_hidden: boolean | null;
+  right_panel_layer: string | null;
 }
 
 export async function getAppConfig(): Promise<AppConfig> {

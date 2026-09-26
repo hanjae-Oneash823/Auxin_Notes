@@ -1,13 +1,11 @@
 import type { ReactNode } from 'react';
-import { Compass, Graph, MagnifyingGlass, Note, PushPin, ShareNetwork, Tag } from '@phosphor-icons/react';
+import { Compass, Graph, Note, PushPin, ShareNetwork } from '@phosphor-icons/react';
 import { openFileSearcherWindow } from '../fileSearcher/openFileSearcherWindow';
 import { SidebarPacket } from './SidebarPacket';
 
-export type SidebarView = 'files' | 'search' | 'tags' | 'sticky';
-
 interface SidebarNavProps {
-  activeSidebarView: SidebarView;
-  onSelectSidebarView: (view: SidebarView) => void;
+  isPinnedOpen: boolean;
+  onTogglePinned: () => void;
   isGraphMode: boolean;
   onToggleGraphMode: () => void;
   isGraph2DMode: boolean;
@@ -41,13 +39,13 @@ function NavRow({ label, title, isActive, onClick, children }: NavRowProps) {
   );
 }
 
-/** Top packet of the left sidebar — replaces the old icon rail. Search/tags/
- *  pinned swap what the sidebar's main packet shows (click the active one
- *  again to return to files); the rest toggle full-content-area modes. The
- *  two axes stay orthogonal, same as before. */
+/** Top packet of the left sidebar. Pinned notes toggles a dock below it; the
+ *  rest toggle full-content-area modes (3D graph, 2D graph, sticky board) or
+ *  open the visual file finder. Search and tags now live in the right
+ *  panel's layers. */
 export function SidebarNav({
-  activeSidebarView,
-  onSelectSidebarView,
+  isPinnedOpen,
+  onTogglePinned,
   isGraphMode,
   onToggleGraphMode,
   isGraph2DMode,
@@ -55,19 +53,9 @@ export function SidebarNav({
   isStickyMode,
   onToggleStickyMode,
 }: SidebarNavProps) {
-  function toggleView(view: SidebarView) {
-    onSelectSidebarView(activeSidebarView === view ? 'files' : view);
-  }
-
   return (
     <SidebarPacket>
-      <NavRow label="Search" isActive={activeSidebarView === 'search'} onClick={() => toggleView('search')}>
-        <MagnifyingGlass size={16} />
-      </NavRow>
-      <NavRow label="Tags" isActive={activeSidebarView === 'tags'} onClick={() => toggleView('tags')}>
-        <Tag size={16} />
-      </NavRow>
-      <NavRow label="Pinned notes" isActive={activeSidebarView === 'sticky'} onClick={() => toggleView('sticky')}>
+      <NavRow label="Pinned notes" isActive={isPinnedOpen} onClick={onTogglePinned}>
         <PushPin size={16} />
       </NavRow>
       <NavRow

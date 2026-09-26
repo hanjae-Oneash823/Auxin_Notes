@@ -31,7 +31,15 @@ export function BacklinksPanel({ vaultRoot, noteId, onSelect }: BacklinksPanelPr
     };
   }, [vaultRoot, noteId, syncVersion]);
 
-  if (!noteId) return null;
+  if (!noteId) {
+    return (
+      <SidebarPacket title="Backlinks">
+        <span className="px-2 py-1 text-fg-faint" style={{ fontSize: '0.78rem' }}>
+          Open a note to see its backlinks
+        </span>
+      </SidebarPacket>
+    );
+  }
 
   return (
     <SidebarPacket title="Backlinks">

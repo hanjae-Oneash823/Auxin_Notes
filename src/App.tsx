@@ -13,7 +13,9 @@ import { createFolder, deleteFolder, moveFolder, moveNoteToFolder, renameFolder 
 import { useVaultStore } from './vault/vaultStore';
 import { useSettingsStore } from './app/settings/settingsStore';
 import { AppShell } from './layout/AppShell';
-import { SidebarNav, type SidebarView } from './layout/SidebarNav';
+import { SidebarNav } from './layout/SidebarNav';
+import { RightPanelHeader } from './layout/RightPanel';
+import { usePanelLayoutStore } from './layout/panelLayoutStore';
 import { FilePlus, FolderPlus, Stack } from '@phosphor-icons/react';
 import { PacketIconButton, SidebarPacket } from './layout/SidebarPacket';
 import { Sidebar } from './layout/Sidebar';
@@ -123,9 +125,10 @@ function VaultReady({
   // render check below compares against the currently active path, so
   // leaving and reopening the tab starts fresh in HubView).
   const [forceEditPath, setForceEditPath] = useState<string | null>(null);
-  // Which view the icon rail has selected for the left sidebar — resets to
-  // 'files' on every app launch, same as reading mode above.
-  const [activeSidebarView, setActiveSidebarView] = useState<SidebarView>('files');
+  // Whether the pinned-notes dock is open under the left nav — resets on
+  // every app launch, same as reading mode above.
+  const [isPinnedOpen, setIsPinnedOpen] = useState(false);
+  const activeRightLayer = usePanelLayoutStore((state) => state.activeRightLayer);
 
   async function refreshNotes() {
     const [all, unresolved, folders] = await Promise.all([
@@ -374,8 +377,8 @@ function VaultReady({
       sidebar={
         <Sidebar side="left" onResizeEnd={(px) => void setSidebarWidthLeft(px)}>
           <SidebarNav
-            activeSidebarView={activeSidebarView}
-            onSelectSidebarView={setActiveSidebarView}
+            isPinnedOpen={isPinnedOpen}
+            onTogglePinned={() => setIsPinnedOpen((isOpen) => !isOpen)}
             isGraphMode={isGraphMode}
             onToggleGraphMode={() => {
               setIsGraphMode((mode) => !mode);
@@ -395,7 +398,17 @@ function VaultReady({
               setIsGraph2DMode(false);
             }}
           />
-          {activeSidebarView === 'files' && (
+          {isPinnedOpen && (
+            <SidebarPacket title="Pinned notes" isFill>
+              <PinnedDock />
+            </SidebarPacket>
+          )}
+        </Sidebar>
+      }
+      inspector={
+        <Sidebar side="right" onResizeEnd={(px) => void setSidebarWidthRight(px)}>
+          <RightPanelHeader />
+          {activeRightLayer === 'files' && (
             <SidebarPacket
               title="Vault"
               isFill
@@ -434,50 +447,52 @@ function VaultReady({
                   style={{ fontSize: '0.8rem' }}
                 />
               )}
-            <FolderTree
-              vaultRoot={vaultRoot}
-              notes={notes ?? []}
-              folderPaths={folderPaths}
-              activePath={activeRelativePath}
-              renamingNoteId={renamingId}
-              renameValue={renameValue}
-              onSelect={openRelativePath}
-              onStartRename={startRename}
-              onRenameChange={setRenameValue}
-              onRenameCommit={commitRename}
-              onRenameCancel={() => setRenamingId(null)}
-              onMoveNote={(note, targetFolderPath) => void handleMoveNote(note, targetFolderPath)}
-              onMoveFolder={(folderPath, targetParentPath) => void handleMoveFolder(folderPath, targetParentPath)}
-              onRenameFolder={(folderPath, newName) => void handleRenameFolder(folderPath, newName)}
-              onDeleteNote={(note) => setPendingDelete({ kind: 'note', note })}
-              onDeleteFolder={(folderPath) => setPendingDelete({ kind: 'folder', path: folderPath })}
-              onRevealNote={(note) => void revealNote(note)}
-              onRevealFolder={(folderPath) => void revealFolder(folderPath)}
-              onNewNoteInFolder={(folderPath) => void createNote(folderPath)}
-              onNewHubInFolder={(folderPath) => void createHub(folderPath)}
-              onNewCanvasInFolder={(folderPath) => void createCanvas(folderPath)}
-              onNewFolderAtRoot={() => {
-                setIsCreatingFolder(true);
-                setNewFolderName('');
-              }}
-              onNewFolderInFolder={(path) => void handleCreateFolderAt(path)}
-            />
+              <FolderTree
+                vaultRoot={vaultRoot}
+                notes={notes ?? []}
+                folderPaths={folderPaths}
+                activePath={activeRelativePath}
+                renamingNoteId={renamingId}
+                renameValue={renameValue}
+                onSelect={openRelativePath}
+                onStartRename={startRename}
+                onRenameChange={setRenameValue}
+                onRenameCommit={commitRename}
+                onRenameCancel={() => setRenamingId(null)}
+                onMoveNote={(note, targetFolderPath) => void handleMoveNote(note, targetFolderPath)}
+                onMoveFolder={(folderPath, targetParentPath) => void handleMoveFolder(folderPath, targetParentPath)}
+                onRenameFolder={(folderPath, newName) => void handleRenameFolder(folderPath, newName)}
+                onDeleteNote={(note) => setPendingDelete({ kind: 'note', note })}
+                onDeleteFolder={(folderPath) => setPendingDelete({ kind: 'folder', path: folderPath })}
+                onRevealNote={(note) => void revealNote(note)}
+                onRevealFolder={(folderPath) => void revealFolder(folderPath)}
+                onNewNoteInFolder={(folderPath) => void createNote(folderPath)}
+                onNewHubInFolder={(folderPath) => void createHub(folderPath)}
+                onNewCanvasInFolder={(folderPath) => void createCanvas(folderPath)}
+                onNewFolderAtRoot={() => {
+                  setIsCreatingFolder(true);
+                  setNewFolderName('');
+                }}
+                onNewFolderInFolder={(path) => void handleCreateFolderAt(path)}
+              />
             </SidebarPacket>
           )}
-          {activeSidebarView === 'search' && (
+          {activeRightLayer === 'search' && (
             <SidebarPacket title="Search" isFill>
               <SearchPanel vaultRoot={vaultRoot} onSelect={openRelativePath} />
             </SidebarPacket>
           )}
-          {activeSidebarView === 'tags' && (
+          {activeRightLayer === 'tags' && (
             <SidebarPacket title="Tags" isFill>
               <TagBrowser vaultRoot={vaultRoot} selectedTag={selectedTag} onSelectTag={setSelectedTag} />
             </SidebarPacket>
           )}
-          {activeSidebarView === 'sticky' && (
-            <SidebarPacket title="Pinned notes" isFill>
-              <PinnedDock />
-            </SidebarPacket>
+          {activeRightLayer === 'contents' && <TocPanel activePath={activePath} />}
+          {activeRightLayer === 'links' && (
+            <>
+              <BacklinksPanel vaultRoot={vaultRoot} noteId={activeNote?.id ?? null} onSelect={openRelativePath} />
+              <UnresolvedLinksPanel vaultRoot={vaultRoot} onSelect={openRelativePath} onChanged={refreshNotes} />
+            </>
           )}
           {pendingDelete && (
             <ConfirmDialog
@@ -502,18 +517,6 @@ function VaultReady({
               [{renameStatus.message}]
             </span>
           )}
-        </Sidebar>
-      }
-      inspector={
-        <Sidebar side="right" onResizeEnd={(px) => void setSidebarWidthRight(px)}>
-          <TocPanel activePath={activePath} />
-          {/* `mt-auto` pins these to the panel's bottom edge (consuming the
-              flex column's free space above them) instead of just trailing
-              a possibly-short TOC mid-panel. */}
-          <div className="mt-auto flex flex-col gap-2">
-            <BacklinksPanel vaultRoot={vaultRoot} noteId={activeNote?.id ?? null} onSelect={openRelativePath} />
-            <UnresolvedLinksPanel vaultRoot={vaultRoot} onSelect={openRelativePath} onChanged={refreshNotes} />
-          </div>
         </Sidebar>
       }
       statusBar={
@@ -612,6 +615,8 @@ function VaultReady({
 function App() {
   const { vaultRoot, status, initFromConfig } = useVaultStore();
   const initSettings = useSettingsStore((state) => state.initFromConfig);
+  const initPanelLayout = usePanelLayoutStore((state) => state.initFromConfig);
+  const toggleSidebar = usePanelLayoutStore((state) => state.toggleSidebar);
 
   // Tab state lives here (not in VaultReady) so the macOS window header
   // (TitleBar, a sibling of VaultReady) can render the same tabs.
@@ -686,7 +691,22 @@ function App() {
   useEffect(() => {
     void initFromConfig();
     void initSettings();
-  }, [initFromConfig, initSettings]);
+    initPanelLayout().catch((error: unknown) => {
+      console.error('Failed to restore panel layout', error);
+    });
+  }, [initFromConfig, initSettings, initPanelLayout]);
+
+  // Cmd+B toggles the left panel, Cmd+Opt+B the right. Matched on `code`, not
+  // `key`: Option+B types a different character on macOS.
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      if (!event.metaKey || event.code !== 'KeyB') return;
+      event.preventDefault();
+      toggleSidebar(event.altKey ? 'right' : 'left');
+    }
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [toggleSidebar]);
 
   const tabItems: TabItem[] = tabs.map((id) => ({
     id,

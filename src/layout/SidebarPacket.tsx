@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
+import type { ReactNode } from 'react';
+import { useHoverTooltip } from './HoverTooltip';
 
 interface SidebarPacketProps {
   /** Small heading shown in the packet's header row; omit for a bare card. */
@@ -46,46 +47,9 @@ interface PacketIconButtonProps {
   children: ReactNode;
 }
 
-const TOOLTIP_DELAY_MS = 150;
-const TOOLTIP_GAP_PX = 6;
-
-interface TooltipAnchor {
-  x: number;
-  y: number;
-}
-
-/** Header icon button with a custom tooltip (instead of the native `title`
- *  bubble): a black-on-white label centered above the button. The label uses
- *  `position: fixed` with coordinates measured from the button on hover, so
- *  it escapes the sidebar's `overflow-x-hidden` scroll container and can
- *  draw over the sidebar's edge instead of being clipped by it. */
+/** Header icon button with the shared custom tooltip (see `useHoverTooltip`). */
 export function PacketIconButton({ title, onClick, children }: PacketIconButtonProps) {
-  const [anchor, setAnchor] = useState<TooltipAnchor>({ x: 0, y: 0 });
-  const [isOpen, setIsOpen] = useState(false);
-  const timerRef = useRef<number | null>(null);
-
-  function clearTimer() {
-    if (timerRef.current === null) return;
-    window.clearTimeout(timerRef.current);
-    timerRef.current = null;
-  }
-
-  function showTooltip(event: ReactMouseEvent<HTMLButtonElement>) {
-    const rect = event.currentTarget.getBoundingClientRect();
-    clearTimer();
-    timerRef.current = window.setTimeout(() => {
-      setAnchor({ x: rect.left + rect.width / 2, y: rect.top - TOOLTIP_GAP_PX });
-      setIsOpen(true);
-    }, TOOLTIP_DELAY_MS);
-  }
-
-  // The anchor is kept on close so the label can fade out in place.
-  function hideTooltip() {
-    clearTimer();
-    setIsOpen(false);
-  }
-
-  useEffect(() => clearTimer, []);
+  const { hoverProps, hide, tooltip } = useHoverTooltip(title);
 
   return (
     <>
@@ -93,38 +57,15 @@ export function PacketIconButton({ title, onClick, children }: PacketIconButtonP
         type="button"
         aria-label={title}
         onClick={() => {
-          hideTooltip();
+          hide();
           onClick();
         }}
-        onMouseEnter={showTooltip}
-        onMouseLeave={hideTooltip}
+        {...hoverProps}
         className="flex h-6 w-6 items-center justify-center rounded-row text-fg-faint transition-colors duration-panel ease-panel hover:bg-border-subtle hover:text-fg-prominent"
       >
         {children}
       </button>
-      {/* Always mounted so close can transition too. Only opacity/transform
-          animate (never left/top), so repositioning while hidden doesn't
-          slide. Open eases out with a slight rise + scale; close is a touch
-          quicker. */}
-      <span
-        role="tooltip"
-        aria-hidden={!isOpen}
-        className="pointer-events-none fixed z-50 whitespace-nowrap rounded-row bg-white px-2 py-1 text-black shadow-[var(--shadow-float)]"
-        style={{
-          left: anchor.x,
-          top: anchor.y,
-          transformOrigin: 'bottom center',
-          transform: isOpen ? 'translate(-50%, -100%) scale(1)' : 'translate(-50%, calc(-100% + 4px)) scale(0.94)',
-          opacity: isOpen ? 1 : 0,
-          transition: isOpen
-            ? 'opacity 140ms cubic-bezier(0.22, 1, 0.36, 1), transform 140ms cubic-bezier(0.22, 1, 0.36, 1)'
-            : 'opacity 90ms ease-in, transform 90ms ease-in',
-          fontSize: '0.72rem',
-          fontWeight: 500,
-        }}
-      >
-        {title}
-      </span>
+      {tooltip}
     </>
   );
 }

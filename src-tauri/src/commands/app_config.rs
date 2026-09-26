@@ -25,6 +25,14 @@ pub struct AppConfig {
     /// same as every config.json written before this field existed.
     #[serde(default)]
     pub theme_id: Option<String>,
+    /// Panel layout, restored on launch. `None`/absent means shown (both
+    /// sidebars) and the Files layer (right panel).
+    #[serde(default)]
+    pub left_sidebar_hidden: Option<bool>,
+    #[serde(default)]
+    pub right_sidebar_hidden: Option<bool>,
+    #[serde(default)]
+    pub right_panel_layer: Option<String>,
 }
 
 fn config_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
