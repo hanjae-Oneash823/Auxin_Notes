@@ -50,7 +50,8 @@ export const auxinEditorTheme = EditorView.theme(
       // clamps scroll to the content's natural height.
       paddingBottom: 'var(--space-scroll-overscroll)',
       caretColor: 'var(--accent-caret)',
-      maxWidth: '760px',
+      maxWidth: 'var(--width-content-max)',
+      transition: 'var(--transition-content-width)',
       margin: '0 auto',
     },
     '.cm-cursor, .cm-dropCursor': {

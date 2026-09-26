@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { getDb } from '../db/client';
+import { SidebarPacket } from '../layout/SidebarPacket';
 import { getReferencingNotes, getUnresolvedLinkGroups, type LinkReference } from '../db/queries/links';
 import { pathQualifiedTarget, resolveLinkTarget, type LinkCandidate } from '../vault/aliasResolution';
 import { relinkRawTarget } from '../vault/renameEngine';
@@ -106,12 +107,9 @@ export function UnresolvedLinksPanel({ vaultRoot, onSelect, onChanged }: Unresol
   if (groups.length === 0) return null;
 
   return (
-    <div className="flex flex-col gap-1">
-      <span className="text-fg-faint tracking-label uppercase" style={{ fontSize: '0.68rem' }}>
-        [unresolved links]
-      </span>
+    <SidebarPacket title="Unresolved links">
       {groups.map((group) => (
-        <div key={group.targetRaw} className="border border-border-subtle p-1">
+        <div key={group.targetRaw} className="rounded-row px-2 py-1.5 hover:bg-border-subtle">
           <div className="flex items-center justify-between gap-2">
             <span
               className={group.status === 'broken' ? 'text-accent-link-broken' : 'text-accent-tag'}
@@ -158,10 +156,10 @@ export function UnresolvedLinksPanel({ vaultRoot, onSelect, onChanged }: Unresol
         </div>
       ))}
       {status && (
-        <span className="text-fg-faint" style={{ fontSize: '0.68rem' }}>
-          [{status}]
+        <span className="px-2 py-1 text-fg-faint" style={{ fontSize: '0.72rem' }}>
+          {status}
         </span>
       )}
-    </div>
+    </SidebarPacket>
   );
 }

@@ -85,6 +85,7 @@ export function TabBar({ tabs, activeTabId, onSelect, onClose, onReorder, classN
   const hoverTargetRef = useRef<HoverTarget | null>(null);
   const suppressClickRef = useRef(false);
   const prevRectsRef = useRef<Map<string, DOMRect>>(new Map());
+  const prevOrderKeyRef = useRef<string | null>(null);
 
   const displayTabs =
     draggedId && hoverTarget
@@ -98,10 +99,33 @@ export function TabBar({ tabs, activeTabId, onSelect, onClose, onReorder, classN
           .filter((tab): tab is TabItem => tab !== undefined)
       : tabs;
 
+  const orderKey = displayTabs.map((tab) => tab.id).join('\n');
+
   useLayoutEffect(() => {
     const container = containerRef.current;
     if (!container) return;
     const elements = Array.from(container.querySelectorAll<HTMLElement>('[data-tab-id]'));
+
+    // Only a change to the tab list/order should play the slide below. This
+    // effect runs on every render, and the strip also re-renders for
+    // unrelated reasons (e.g. the sidebar show/hide animation shifting the
+    // whole strip sideways) — treating that shift as a reorder would slide
+    // every tab back from its stale earlier position, a visible jump. For
+    // those renders just refresh the resting positions (skipped while a
+    // slide is mid-flight, when the painted rects include its transform).
+    const isOrderChange = prevOrderKeyRef.current !== orderKey;
+    prevOrderKeyRef.current = orderKey;
+    if (!isOrderChange) {
+      const isSliding = elements.some((el) => el.style.transform !== '' && el.style.transform !== 'none');
+      if (isSliding) return;
+      const restingRects = new Map<string, DOMRect>();
+      for (const el of elements) {
+        const id = el.dataset.tabId;
+        if (id) restingRects.set(id, el.getBoundingClientRect());
+      }
+      prevRectsRef.current = restingRects;
+      return;
+    }
 
     // `getBoundingClientRect()` reports the element's current *painted*
     // box, transform included — so if a previous slide is still mid-flight

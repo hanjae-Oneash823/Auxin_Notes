@@ -1,5 +1,6 @@
 import { getEditorView } from '../editor/editorRegistry';
 import { useTocStore } from '../editor/tocStore';
+import { SidebarPacket } from '../layout/SidebarPacket';
 
 interface TocPanelProps {
   activePath: string | null;
@@ -22,21 +23,18 @@ export function TocPanel({ activePath }: TocPanelProps) {
   }
 
   return (
-    <div className="flex flex-col gap-1">
-      <span className="text-fg-faint tracking-label uppercase" style={{ fontSize: '0.68rem' }}>
-        [contents]
-      </span>
+    <SidebarPacket title="Contents">
       {headings.map((heading, index) => (
         <button
           key={index}
           type="button"
           onClick={() => goToHeading(heading.pos)}
-          className="truncate text-left text-fg-faint hover:text-fg-prominent"
-          style={{ fontSize: '0.82rem', paddingLeft: `${4 + (heading.level - 1) * 10}px` }}
+          className="truncate rounded-row py-1 pr-2 text-left text-fg-muted transition-colors duration-panel ease-panel hover:bg-border-subtle hover:text-fg-prominent"
+          style={{ fontSize: '0.82rem', paddingLeft: `${8 + (heading.level - 1) * 10}px` }}
         >
           {heading.text}
         </button>
       ))}
-    </div>
+    </SidebarPacket>
   );
 }

@@ -35,7 +35,7 @@ export function NoteListItem({
           if (event.key === 'Enter') onRenameCommit();
           if (event.key === 'Escape') onRenameCancel();
         }}
-        className="w-full border border-border-strong bg-transparent px-1 text-left text-fg-prominent outline-none"
+        className="w-full rounded-row border border-border-strong bg-transparent px-1 text-left text-fg-prominent outline-none"
         style={{ fontSize: '0.85rem' }}
       />
     );
@@ -46,8 +46,8 @@ export function NoteListItem({
       type="button"
       onClick={onSelect}
       onDoubleClick={onStartRename}
-      className={`flex w-full items-center gap-1 truncate px-1 text-left transition-colors duration-panel ease-panel ${
-        isActive ? 'bg-accent-tag text-bg' : 'text-fg-muted hover:text-fg-prominent'
+      className={`flex w-full items-center gap-1.5 truncate rounded-row px-1.5 py-0.5 text-left transition-colors duration-panel ease-panel ${
+        isActive ? 'bg-border-default text-fg' : 'text-fg-muted hover:bg-border-subtle hover:text-fg-prominent'
       }`}
       style={{ fontSize: '0.85rem' }}
     >

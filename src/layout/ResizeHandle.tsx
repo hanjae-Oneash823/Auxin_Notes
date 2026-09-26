@@ -16,7 +16,7 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
 }
 
-const BORDER_WIDTH_PX = 1.5; // matches Sidebar.tsx's border-r/l-[1.5px]
+const BORDER_WIDTH_PX = 0; // Sidebar.tsx has no border; the tone step is the divider
 const HANDLE_WIDTH_PX = 6; // Tailwind's w-1.5
 // The handle is an absolutely-positioned child of the bordered <aside> — its
 // containing block is that element's *padding* box, which sits entirely

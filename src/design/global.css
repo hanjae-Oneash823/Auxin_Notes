@@ -79,6 +79,13 @@ body,
   overflow: hidden;
 }
 
+/* Root size scales every rem-based UI dimension (sidebar text, chrome
+ * spacing) — the editor body reads --font-size-base in px, so it's
+ * unaffected. Browser default is 16px; this is a deliberate ~6% shrink. */
+html {
+  font-size: 15px;
+}
+
 body {
   background-color: var(--color-bg);
   color: var(--color-fg);
@@ -105,7 +112,7 @@ body {
   height: 10px;
 }
 ::-webkit-scrollbar-track {
-  background: var(--color-bg);
+  background: var(--scrollbar-track);
 }
 ::-webkit-scrollbar-thumb {
   background-color: var(--fg-faint);
@@ -117,7 +124,7 @@ body {
   background-color: var(--fg-muted);
 }
 ::-webkit-scrollbar-corner {
-  background: var(--color-bg);
+  background: var(--scrollbar-track);
 }
 
 /* Text selection is reserved for the note content itself — everywhere else

@@ -413,7 +413,7 @@ export function FolderTree({
               if (event.key === 'Escape') setRenamingFolderPath(null);
             }}
             style={{ paddingLeft: indent, fontSize: '0.85rem' }}
-            className="w-full border border-border-strong bg-transparent px-1 text-left text-fg-prominent outline-none"
+            className="w-full rounded-row border border-border-strong bg-transparent px-1 text-left text-fg-prominent outline-none"
           />
         );
       }
@@ -430,10 +430,10 @@ export function FolderTree({
             setRowContextMenu({ kind: 'folder', node, x: event.clientX, y: event.clientY });
           }}
           style={{ paddingLeft: indent, fontSize: '0.85rem' }}
-          className={`flex w-full cursor-pointer select-none items-center gap-1 truncate border px-1 text-left transition-colors duration-panel ease-panel ${
+          className={`flex w-full cursor-pointer select-none items-center gap-1.5 truncate rounded-row border px-1.5 py-0.5 text-left transition-colors duration-panel ease-panel ${
             isDropTarget
               ? 'border-accent-link bg-border-subtle text-fg-prominent'
-              : 'border-transparent text-accent-tag hover:text-fg-prominent'
+              : 'border-transparent text-fg-prominent hover:bg-border-subtle'
           } ${isDragging ? 'opacity-40' : ''}`}
         >
           <CaretRight
@@ -446,11 +446,11 @@ export function FolderTree({
           ) : (
             <FolderOpen size={12} weight="regular" className="shrink-0" />
           )}
-          <span className="flex-1 truncate">[{node.name}]</span>
+          <span className="flex-1 truncate">{node.name}</span>
           {node.noteCount > 0 && (
             <span
-              className="mr-1.5 flex h-4 w-4 shrink-0 items-center justify-center bg-accent-tag text-bg"
-              style={{ fontSize: '0.65rem' }}
+              className="mr-1 shrink-0 text-fg-faint"
+              style={{ fontSize: '0.72rem' }}
             >
               {node.noteCount}
             </span>
@@ -484,8 +484,8 @@ export function FolderTree({
           <button
             type="button"
             onClick={() => onSelect(row.note.path)}
-            className={`flex w-full items-center gap-1.5 truncate border-l-2 border-l-accent-tag py-0.5 pl-1.5 text-left transition-colors duration-panel ease-panel ${
-              activePath === row.note.path ? 'bg-accent-tag text-bg' : 'text-accent-link hover:text-fg-prominent'
+            className={`flex w-full items-center gap-1.5 truncate rounded-row py-0.5 pl-1.5 text-left transition-colors duration-panel ease-panel ${
+              activePath === row.note.path ? 'bg-border-default text-fg' : 'text-accent-link hover:bg-border-subtle'
             }`}
             style={{ fontSize: '0.82rem' }}
           >

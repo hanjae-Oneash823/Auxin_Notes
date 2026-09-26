@@ -13,7 +13,9 @@ import { createFolder, deleteFolder, moveFolder, moveNoteToFolder, renameFolder 
 import { useVaultStore } from './vault/vaultStore';
 import { useSettingsStore } from './app/settings/settingsStore';
 import { AppShell } from './layout/AppShell';
-import { IconRail, type SidebarView } from './layout/IconRail';
+import { SidebarNav, type SidebarView } from './layout/SidebarNav';
+import { FilePlus, FolderPlus, Stack } from '@phosphor-icons/react';
+import { PacketIconButton, SidebarPacket } from './layout/SidebarPacket';
 import { Sidebar } from './layout/Sidebar';
 import { StatusBar } from './layout/StatusBar';
 import { HOME_TAB_ID, TabBar, type TabItem } from './layout/TabBar';
@@ -370,8 +372,8 @@ function VaultReady({
   return (
     <AppShell
       sidebar={
-        <div className="flex">
-          <IconRail
+        <Sidebar side="left" onResizeEnd={(px) => void setSidebarWidthLeft(px)}>
+          <SidebarNav
             activeSidebarView={activeSidebarView}
             onSelectSidebarView={setActiveSidebarView}
             isGraphMode={isGraphMode}
@@ -393,124 +395,114 @@ function VaultReady({
               setIsGraph2DMode(false);
             }}
           />
-          <Sidebar side="left" onResizeEnd={(px) => void setSidebarWidthLeft(px)}>
-            {activeSidebarView === 'files' && (
-              <>
-                <div className="flex flex-col gap-3 pr-3">
-                  <span className="text-fg-faint tracking-label uppercase" style={{ fontSize: '0.68rem' }}>
-                    [vault]
-                  </span>
-                  <div className="flex gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => void createNote()}
-                      className="flex-1 border border-border px-2 py-1 text-left tracking-menu uppercase transition-colors duration-panel ease-panel hover:border-border-strong"
-                      style={{ fontSize: '0.72rem' }}
-                    >
-                      <span className="text-fg-faint">[+]</span> <span className="text-fg-prominent">note</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void createCanvas()}
-                      className="flex-1 border border-border px-2 py-1 text-left tracking-menu uppercase transition-colors duration-panel ease-panel hover:border-border-strong"
-                      style={{ fontSize: '0.72rem' }}
-                    >
-                      <span className="text-fg-faint">[+]</span> <span className="text-fg-prominent">canvas</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setIsCreatingFolder(true);
-                        setNewFolderName('');
-                      }}
-                      className="flex-1 border border-border px-2 py-1 text-left tracking-menu uppercase transition-colors duration-panel ease-panel hover:border-border-strong"
-                      style={{ fontSize: '0.72rem' }}
-                    >
-                      <span className="text-fg-faint">[+]</span> <span className="text-fg-prominent">folder</span>
-                    </button>
-                  </div>
-                  {isCreatingFolder && (
-                    <input
-                      autoFocus
-                      value={newFolderName}
-                      onChange={(event) => setNewFolderName(event.target.value)}
-                      onBlur={() => setIsCreatingFolder(false)}
-                      onKeyDown={(event) => {
-                        if (event.key === 'Enter') void commitCreateFolder();
-                        if (event.key === 'Escape') setIsCreatingFolder(false);
-                      }}
-                      placeholder="folder name"
-                      className="w-full border border-border-strong bg-transparent px-1 py-1 text-left text-fg-prominent outline-none"
-                      style={{ fontSize: '0.72rem' }}
-                    />
-                  )}
-                </div>
-                <FolderTree
-                  vaultRoot={vaultRoot}
-                  notes={notes ?? []}
-                  folderPaths={folderPaths}
-                  activePath={activeRelativePath}
-                  renamingNoteId={renamingId}
-                  renameValue={renameValue}
-                  onSelect={openRelativePath}
-                  onStartRename={startRename}
-                  onRenameChange={setRenameValue}
-                  onRenameCommit={commitRename}
-                  onRenameCancel={() => setRenamingId(null)}
-                  onMoveNote={(note, targetFolderPath) => void handleMoveNote(note, targetFolderPath)}
-                  onMoveFolder={(folderPath, targetParentPath) => void handleMoveFolder(folderPath, targetParentPath)}
-                  onRenameFolder={(folderPath, newName) => void handleRenameFolder(folderPath, newName)}
-                  onDeleteNote={(note) => setPendingDelete({ kind: 'note', note })}
-                  onDeleteFolder={(folderPath) => setPendingDelete({ kind: 'folder', path: folderPath })}
-                  onRevealNote={(note) => void revealNote(note)}
-                  onRevealFolder={(folderPath) => void revealFolder(folderPath)}
-                  onNewNoteInFolder={(folderPath) => void createNote(folderPath)}
-                  onNewHubInFolder={(folderPath) => void createHub(folderPath)}
-                  onNewCanvasInFolder={(folderPath) => void createCanvas(folderPath)}
-                  onNewFolderAtRoot={() => {
-                    setIsCreatingFolder(true);
-                    setNewFolderName('');
+          {activeSidebarView === 'files' && (
+            <SidebarPacket
+              title="Vault"
+              isFill
+              actions={
+                <>
+                  <PacketIconButton title="new note" onClick={() => void createNote()}>
+                    <FilePlus size={15} />
+                  </PacketIconButton>
+                  <PacketIconButton title="new canvas" onClick={() => void createCanvas()}>
+                    <Stack size={15} />
+                  </PacketIconButton>
+                  <PacketIconButton
+                    title="new folder"
+                    onClick={() => {
+                      setIsCreatingFolder(true);
+                      setNewFolderName('');
+                    }}
+                  >
+                    <FolderPlus size={15} />
+                  </PacketIconButton>
+                </>
+              }
+            >
+              {isCreatingFolder && (
+                <input
+                  autoFocus
+                  value={newFolderName}
+                  onChange={(event) => setNewFolderName(event.target.value)}
+                  onBlur={() => setIsCreatingFolder(false)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') void commitCreateFolder();
+                    if (event.key === 'Escape') setIsCreatingFolder(false);
                   }}
-                  onNewFolderInFolder={(path) => void handleCreateFolderAt(path)}
+                  placeholder="folder name"
+                  className="mb-1 w-full rounded-row border border-border bg-transparent px-2 py-1 text-left text-fg-prominent outline-none focus:border-border-strong"
+                  style={{ fontSize: '0.8rem' }}
                 />
-              </>
-            )}
-            {activeSidebarView === 'search' && (
-              <div className="pr-3">
-                <SearchPanel vaultRoot={vaultRoot} onSelect={openRelativePath} />
-              </div>
-            )}
-            {activeSidebarView === 'tags' && (
-              <div className="pr-3">
-                <TagBrowser vaultRoot={vaultRoot} selectedTag={selectedTag} onSelectTag={setSelectedTag} />
-              </div>
-            )}
-            {activeSidebarView === 'sticky' && <PinnedDock />}
-            {pendingDelete && (
-              <ConfirmDialog
-                message={
-                  pendingDelete.kind === 'note'
-                    ? `Delete "${pendingDelete.note.title}"? This can't be undone.`
-                    : `Delete "${pendingDelete.path.split('/').pop()}" and everything inside it? This can't be undone.`
-                }
-                onCancel={() => setPendingDelete(null)}
-                onConfirm={() => {
-                  if (pendingDelete.kind === 'note') void deleteNote(pendingDelete.note);
-                  else void deleteFolderHandler(pendingDelete.path);
-                  setPendingDelete(null);
-                }}
-              />
-            )}
-            {renameStatus && (
-              <span
-                className={`pr-3 ${renameStatus.isError ? 'text-accent-link-broken' : 'text-fg-faint'}`}
-                style={{ fontSize: '0.68rem' }}
-              >
-                [{renameStatus.message}]
-              </span>
-            )}
-          </Sidebar>
-        </div>
+              )}
+            <FolderTree
+              vaultRoot={vaultRoot}
+              notes={notes ?? []}
+              folderPaths={folderPaths}
+              activePath={activeRelativePath}
+              renamingNoteId={renamingId}
+              renameValue={renameValue}
+              onSelect={openRelativePath}
+              onStartRename={startRename}
+              onRenameChange={setRenameValue}
+              onRenameCommit={commitRename}
+              onRenameCancel={() => setRenamingId(null)}
+              onMoveNote={(note, targetFolderPath) => void handleMoveNote(note, targetFolderPath)}
+              onMoveFolder={(folderPath, targetParentPath) => void handleMoveFolder(folderPath, targetParentPath)}
+              onRenameFolder={(folderPath, newName) => void handleRenameFolder(folderPath, newName)}
+              onDeleteNote={(note) => setPendingDelete({ kind: 'note', note })}
+              onDeleteFolder={(folderPath) => setPendingDelete({ kind: 'folder', path: folderPath })}
+              onRevealNote={(note) => void revealNote(note)}
+              onRevealFolder={(folderPath) => void revealFolder(folderPath)}
+              onNewNoteInFolder={(folderPath) => void createNote(folderPath)}
+              onNewHubInFolder={(folderPath) => void createHub(folderPath)}
+              onNewCanvasInFolder={(folderPath) => void createCanvas(folderPath)}
+              onNewFolderAtRoot={() => {
+                setIsCreatingFolder(true);
+                setNewFolderName('');
+              }}
+              onNewFolderInFolder={(path) => void handleCreateFolderAt(path)}
+            />
+            </SidebarPacket>
+          )}
+          {activeSidebarView === 'search' && (
+            <SidebarPacket title="Search" isFill>
+              <SearchPanel vaultRoot={vaultRoot} onSelect={openRelativePath} />
+            </SidebarPacket>
+          )}
+          {activeSidebarView === 'tags' && (
+            <SidebarPacket title="Tags" isFill>
+              <TagBrowser vaultRoot={vaultRoot} selectedTag={selectedTag} onSelectTag={setSelectedTag} />
+            </SidebarPacket>
+          )}
+          {activeSidebarView === 'sticky' && (
+            <SidebarPacket title="Pinned notes" isFill>
+              <PinnedDock />
+            </SidebarPacket>
+          )}
+          {pendingDelete && (
+            <ConfirmDialog
+              message={
+                pendingDelete.kind === 'note'
+                  ? `Delete "${pendingDelete.note.title}"? This can't be undone.`
+                  : `Delete "${pendingDelete.path.split('/').pop()}" and everything inside it? This can't be undone.`
+              }
+              onCancel={() => setPendingDelete(null)}
+              onConfirm={() => {
+                if (pendingDelete.kind === 'note') void deleteNote(pendingDelete.note);
+                else void deleteFolderHandler(pendingDelete.path);
+                setPendingDelete(null);
+              }}
+            />
+          )}
+          {renameStatus && (
+            <span
+              className={`${renameStatus.isError ? 'text-accent-link-broken' : 'text-fg-faint'}`}
+              style={{ fontSize: '0.68rem' }}
+            >
+              [{renameStatus.message}]
+            </span>
+          )}
+        </Sidebar>
       }
       inspector={
         <Sidebar side="right" onResizeEnd={(px) => void setSidebarWidthRight(px)}>
@@ -518,7 +510,7 @@ function VaultReady({
           {/* `mt-auto` pins these to the panel's bottom edge (consuming the
               flex column's free space above them) instead of just trailing
               a possibly-short TOC mid-panel. */}
-          <div className="mt-auto flex flex-col gap-3">
+          <div className="mt-auto flex flex-col gap-2">
             <BacklinksPanel vaultRoot={vaultRoot} noteId={activeNote?.id ?? null} onSelect={openRelativePath} />
             <UnresolvedLinksPanel vaultRoot={vaultRoot} onSelect={openRelativePath} onChanged={refreshNotes} />
           </div>

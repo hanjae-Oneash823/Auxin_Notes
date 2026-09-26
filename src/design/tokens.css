@@ -8,26 +8,29 @@
   /* Layered neutral dark grays (Zed-workspace reference) rather than pure
      black — true #000 reads flat/harsh next to hairline borders; a warm
      near-black lets --border-* actually register as a step up in value. */
-  --color-bg: #1a1a1c;
+  --color-bg: #0b0b0c;
   --color-fg: #ffffff;
   /* Header strip (TitleBar) and icon rail — one step darker than
      `--color-bg` in dark mode so chrome reads as a distinct layer behind
      the content, and a distinct off-white in light mode, see
      `[data-theme="light"]` below. */
-  --color-chrome-bg: #0a0a0b;
+  --color-chrome-bg: #1b1b1e;
   /* Left/right sidebar panels (Sidebar.tsx) — same as `--color-bg` in dark
      (Zed keeps panel and content grounds equal, relying on hairline
      borders rather than tone shifts to separate them) but a subtle
      off-white in light mode, dialed back from `--color-chrome-bg` so the
      panels read as a step below the header/icon-rail, not equal to it. See
      `[data-theme="light"]` below. */
-  --color-panel-bg: #121214;
+  --color-panel-bg: #1b1b1e;
+  /* Rounded card inside a sidebar (SidebarPacket.tsx) — one step lighter
+     than the grey panel it sits on, so grouped info reads as a packet. */
+  --color-packet-bg: #242427;
   /* Bottom status/footer strip — darkest chrome layer in dark mode (below
      `--color-chrome-bg`), dark grey in light mode (see `[data-theme="light"]`
      below). Its own text needs fixed light-on-dark tones for the same
      reason: `--fg-*` would go near-black in light mode and vanish against
      this always-dark bar. */
-  --color-footer-bg: #0b0b0d;
+  --color-footer-bg: #121214;
   --color-footer-fg: rgba(255, 255, 255, 0.62);
   --color-footer-fg-prominent: rgba(255, 255, 255, 0.85);
 
@@ -49,7 +52,10 @@
   --fg-prominent: rgba(255, 255, 255, 0.85);
   --fg-full: #ffffff;
 
-  --border-subtle: rgba(255, 255, 255, 0.09);
+  --border-subtle: rgba(255, 255, 255, 0.07);
+  /* Scrollbar track — matches the sidebar's grey ground in both themes
+     (the light-theme override of --color-panel-bg flows through). */
+  --scrollbar-track: var(--color-panel-bg);
   --border-default: rgba(255, 255, 255, 0.16);
   --border-strong: rgba(255, 255, 255, 0.35);
 
@@ -120,6 +126,12 @@
   --width-rail: 3.25rem;
   --width-sidebar-left: 16rem;
   --width-sidebar-right: 16rem;
+  /* Max width of the centered content column (editor, hubs, home). Widens
+     while the left sidebar is hidden — see `[data-sidebar-hidden]` below.
+     The transition value must stay in sync with SIDEBAR_TOGGLE_MS/EASING in
+     layout/sidebarVisibilityStore.ts so the column grows with the slide. */
+  --width-content-max: 760px;
+  --transition-content-width: max-width 220ms cubic-bezier(0.32, 0.72, 0, 1);
 
   /* System law: no border-radius anywhere except circular status dots —
      --radius-sticky is the one deliberate exception (sticky notes, meant to
@@ -127,6 +139,9 @@
   --radius-none: 0px;
   --radius-full: 9999px;
   --radius-sticky: 6px;
+  /* Sidebar packets and their inner rows/buttons. */
+  --radius-panel: 10px;
+  --radius-row: 6px;
 
   /* Sticky-note paper palette — fixed pastel/ink pairs, deliberately the
      same in both themes: real paper doesn't relabel itself dark mode.
@@ -170,6 +185,11 @@
   --border-hairline: 1px solid;
 }
 
+/* Set on <html> by sidebarVisibilityStore while the left sidebar is hidden. */
+:root[data-sidebar-hidden='true'] {
+  --width-content-max: 960px;
+}
+
 /* Explicit opt-in only (Settings → Theme) — not tied to
    `prefers-color-scheme`, since Dark is this app's default identity, not a
    fallback for "OS says dark". A considered light palette, not a flat
@@ -184,22 +204,24 @@
      ground goes pure white above, so header strip/icon rail keep a subtle
      warm off-white to still read as a distinct chrome layer instead of
      fusing into the page. */
-  --color-chrome-bg: #f8f5f0;
+  --color-chrome-bg: #ecebe8;
   /* Same warm off-white family as `--color-chrome-bg` above, just diluted
      toward `--color-bg` — a subtle step between pure-white content and the
      more saturated header/icon-rail tone, not a match for either. */
-  --color-panel-bg: #fcfbf9;
+  --color-panel-bg: #ecebe8;
+  --color-packet-bg: #f7f6f4;
   /* Footer stays a dark strip in light mode too, but pure black reads too
      harsh against the rest of the light palette — dark grey instead. */
-  --color-footer-bg: #2a2a2a;
+  --color-footer-bg: #dddbd6;
+  --color-footer-fg: rgba(20, 22, 26, 0.62);
+  --color-footer-fg-prominent: rgba(20, 22, 26, 0.85);
 
   --fg-faint: rgba(20, 22, 26, 0.35);
   --fg-muted: rgba(20, 22, 26, 0.62);
   --fg-prominent: rgba(20, 22, 26, 0.85);
   --fg-full: #14161a;
 
-  --border-subtle: rgba(20, 22, 26, 0.09);
-  /* Panel-separating borders (sidebar, terminal, settings, the title field)
+  --border-subtle: rgba(20, 22, 26, 0.09);  /* Panel-separating borders (sidebar, terminal, settings, the title field)
      go near-black rather than a translucent tint in light mode — reads as
      a much crisper division on a near-white ground than a soft gray line,
      without the starkness of literal pure black. */

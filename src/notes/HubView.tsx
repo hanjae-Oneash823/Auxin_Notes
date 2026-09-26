@@ -136,7 +136,11 @@ export function HubView({ note, vaultRoot, onNavigate, onEditSource }: HubViewPr
   return (
     <div
       className="mx-auto flex h-full flex-col gap-4 overflow-y-auto"
-      style={{ maxWidth: '760px', padding: 'var(--space-content-lg)' }}
+      style={{
+        maxWidth: 'var(--width-content-max)',
+        transition: 'var(--transition-content-width)',
+        padding: 'var(--space-content-lg)',
+      }}
     >
       <div className="flex items-center justify-between gap-3">
         <h1 className="text-fg-prominent" style={{ fontSize: '2.2em', fontWeight: 700 }}>

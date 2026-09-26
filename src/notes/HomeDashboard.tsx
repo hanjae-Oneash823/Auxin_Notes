@@ -26,7 +26,11 @@ export function HomeDashboard({ noteCount, unresolvedCount, recentNotes, onSelec
   return (
     <div
       className="mx-auto flex h-full flex-col gap-4 overflow-y-auto"
-      style={{ maxWidth: '760px', padding: 'var(--space-content-lg)' }}
+      style={{
+        maxWidth: 'var(--width-content-max)',
+        transition: 'var(--transition-content-width)',
+        padding: 'var(--space-content-lg)',
+      }}
     >
       <div className="flex gap-4 text-fg-faint" style={{ fontSize: '0.75rem' }}>
         <span>

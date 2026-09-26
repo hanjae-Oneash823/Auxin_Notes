@@ -9,6 +9,7 @@ export default {
           DEFAULT: 'var(--color-bg)',
           chrome: 'var(--color-chrome-bg)',
           panel: 'var(--color-panel-bg)',
+          packet: 'var(--color-packet-bg)',
           footer: 'var(--color-footer-bg)',
         },
         fg: {
@@ -63,6 +64,8 @@ export default {
       // Exception to the system law above — see tokens.css's own comment
       // on `--radius-sticky` for why.
       sticky: 'var(--radius-sticky)',
+      panel: 'var(--radius-panel)',
+      row: 'var(--radius-row)',
     },
   },
   plugins: [],

@@ -352,7 +352,11 @@ export function Editor({ path, vaultRoot, onNavigate, onRenameTitle, readOnly }:
       <TocDots activePath={path} />
       <div
         className="mx-auto flex w-full items-start gap-2"
-        style={{ maxWidth: '760px', padding: 'var(--space-content-md) var(--space-content-lg) 0' }}
+        style={{
+          maxWidth: 'var(--width-content-max)',
+          transition: 'var(--transition-content-width)',
+          padding: 'var(--space-content-md) var(--space-content-lg) 0',
+        }}
       >
         <div ref={titleWrapperRef} className="w-full flex-1 overflow-hidden">
           <textarea

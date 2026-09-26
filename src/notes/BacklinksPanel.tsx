@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { getDb } from '../db/client';
 import { getBacklinks, type BacklinkEntry } from '../db/queries/links';
+import { SidebarPacket } from '../layout/SidebarPacket';
 import { useVaultStore } from '../vault/vaultStore';
 
 interface BacklinksPanelProps {
@@ -33,13 +34,10 @@ export function BacklinksPanel({ vaultRoot, noteId, onSelect }: BacklinksPanelPr
   if (!noteId) return null;
 
   return (
-    <div className="flex flex-col gap-1">
-      <span className="text-fg-faint tracking-label uppercase" style={{ fontSize: '0.68rem' }}>
-        [backlinks]
-      </span>
+    <SidebarPacket title="Backlinks">
       {backlinks.length === 0 ? (
-        <span className="px-1 text-fg-faint" style={{ fontSize: '0.75rem' }}>
-          no backlinks
+        <span className="px-2 py-1 text-fg-faint" style={{ fontSize: '0.78rem' }}>
+          No backlinks
         </span>
       ) : (
         backlinks.map((entry) => (
@@ -47,13 +45,13 @@ export function BacklinksPanel({ vaultRoot, noteId, onSelect }: BacklinksPanelPr
             key={entry.id}
             type="button"
             onClick={() => onSelect(entry.path)}
-            className="truncate px-1 text-left text-accent-link hover:text-fg-prominent"
+            className="truncate rounded-row px-2 py-1 text-left text-accent-link transition-colors duration-panel ease-panel hover:bg-border-subtle hover:text-fg-prominent"
             style={{ fontSize: '0.82rem' }}
           >
             {entry.title}
           </button>
         ))
       )}
-    </div>
+    </SidebarPacket>
   );
 }
