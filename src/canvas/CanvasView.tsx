@@ -10,8 +10,16 @@ import { findArrowCrossings } from './arrowCrossings';
 import { buildArrowPath, computeArrowPolyline, crossbarShape, type CrossbarShape } from './arrowPath';
 import { CanvasArrow, CanvasArrowDefs } from './CanvasArrow';
 import { CanvasCard } from './CanvasCard';
-import { ARROW_CORNER_RADIUS, DEFAULT_CARD_HEIGHT, DEFAULT_CARD_WIDTH, MAX_ZOOM, MIN_ZOOM, ZOOM_STEP } from './canvasConstants';
-import { offsetPosition, type NavDirection, type Point } from './canvasGeometry';
+import {
+  ARROW_CORNER_RADIUS,
+  DEFAULT_CARD_HEIGHT,
+  DEFAULT_CARD_WIDTH,
+  DRAG_CLICK_THRESHOLD_PX,
+  MAX_ZOOM,
+  MIN_ZOOM,
+  ZOOM_STEP,
+} from './canvasConstants';
+import { offsetPosition, rectsIntersect, type NavDirection, type Point, type Rect } from './canvasGeometry';
 import { findOrCreateGhost } from './ghostCards';
 import { NotePickerPopover } from './NotePickerPopover';
 import { promoteCard } from './promoteCard';
@@ -55,6 +63,11 @@ export function CanvasView({ path, vaultRoot, onNavigate, onSynced }: CanvasView
   const [doc, setDoc] = useState<CanvasDocument | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [focusedCardId, setFocusedCardId] = useState<string | null>(null);
+  // Cards currently highlighted for group actions (drag together, delete
+  // together) — a PureRef-style marquee selection. `focusedCardId` remains
+  // the single keyboard-nav anchor; this tracks the (possibly larger) set a
+  // marquee, click, or group drag/delete should act on.
+  const [selectedCardIds, setSelectedCardIds] = useState<Set<string>>(new Set());
   // Set once, right when a card is created via typing/Tab+direction, so that
   // one card's mini-editor grabs real DOM focus on mount — distinct from
   // `focusedCardId` (the board-level selection ring), which must never pull
@@ -64,6 +77,9 @@ export function CanvasView({ path, vaultRoot, onNavigate, onSynced }: CanvasView
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState<Point>({ x: 0, y: 0 });
   const [arrowDraft, setArrowDraft] = useState<ArrowDraft | null>(null);
+  // Screen-space (viewport-relative) marquee-select overlay rect, live while
+  // a left-button drag is in progress on the bare background.
+  const [marquee, setMarquee] = useState<{ left: number; top: number; width: number; height: number } | null>(null);
   const [titlePrompt, setTitlePrompt] = useState<TitlePrompt | null>(null);
   const [notePickerAnchor, setNotePickerAnchor] = useState<Point | null>(null);
 
@@ -74,6 +90,11 @@ export function CanvasView({ path, vaultRoot, onNavigate, onSynced }: CanvasView
   const zoomRef = useRef(zoom);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dragState = useRef<{ pointerId: number; lastX: number; lastY: number } | null>(null);
+  const marqueeDragState = useRef<{ pointerId: number; startClientX: number; startClientY: number } | null>(null);
+  // Snapshot of every group-drag member's pre-drag position, taken at
+  // pointerdown on a card's drag strip — lets `handleMoveBy` apply the same
+  // dx/dy to the whole group instead of only the one card the pointer is on.
+  const groupDragSnapshotRef = useRef<Map<string, Point> | null>(null);
 
   useEffect(() => {
     docRef.current = doc;
@@ -112,6 +133,7 @@ export function CanvasView({ path, vaultRoot, onNavigate, onSynced }: CanvasView
       }
       setDoc(null);
       setFocusedCardId(null);
+      setSelectedCardIds(new Set());
     };
   }, [path, vaultRoot]);
 
@@ -156,8 +178,20 @@ export function CanvasView({ path, vaultRoot, onNavigate, onSynced }: CanvasView
     }));
   }
 
-  function handleMove(cardId: string, x: number, y: number) {
-    updateDoc((d) => ({ ...d, cards: d.cards.map((c) => (c.id === cardId ? { ...c, x, y } : c)) }));
+  /** `CanvasCard`'s `onMoveBy` — `dx`/`dy` is the total delta since drag
+   *  start, applied uniformly to every card in `groupDragSnapshotRef`'s
+   *  pre-drag snapshot (just the one card for a single-card drag) so a
+   *  multi-card drag translates rigidly instead of distorting. */
+  function handleMoveBy(cardId: string, dx: number, dy: number) {
+    const snapshot = groupDragSnapshotRef.current;
+    if (!snapshot?.has(cardId)) return;
+    updateDoc((d) => ({
+      ...d,
+      cards: d.cards.map((c) => {
+        const start = snapshot.get(c.id);
+        return start ? { ...c, x: start.x + dx, y: start.y + dy } : c;
+      }),
+    }));
   }
 
   function handleResize(cardId: string, w: number, h: number) {
@@ -171,6 +205,29 @@ export function CanvasView({ path, vaultRoot, onNavigate, onSynced }: CanvasView
       arrows: d.arrows.filter((a) => a.fromCardId !== cardId && a.toCardId !== cardId),
     }));
     setFocusedCardId((id) => (id === cardId ? null : id));
+    setSelectedCardIds((prev) => {
+      if (!prev.has(cardId)) return prev;
+      const next = new Set(prev);
+      next.delete(cardId);
+      return next;
+    });
+  }
+
+  /** Backspace/Delete via `useCanvasKeyboardNav` — group-aware: removes the
+   *  whole marquee selection when one exists, else falls back to the single
+   *  id the hook passed (its `focusedCardId`-driven default). The per-card
+   *  trash button in `CanvasCard` bypasses this and always calls
+   *  `handleDelete` directly, so an explicit click there only ever removes
+   *  the one card clicked, even inside a multi-selection. */
+  function handleDeleteSelected(cardId: string) {
+    const idsToDelete = selectedCardIds.size > 0 ? selectedCardIds : new Set([cardId]);
+    updateDoc((d) => ({
+      ...d,
+      cards: d.cards.filter((c) => !idsToDelete.has(c.id)),
+      arrows: d.arrows.filter((a) => !idsToDelete.has(a.fromCardId) && !idsToDelete.has(a.toCardId)),
+    }));
+    setSelectedCardIds(new Set());
+    setFocusedCardId(null);
   }
 
   async function handlePromote(cardId: string) {
@@ -231,14 +288,22 @@ export function CanvasView({ path, vaultRoot, onNavigate, onSynced }: CanvasView
     containerRef: viewportRef,
     cards: doc?.cards ?? [],
     focusedCardId,
-    onFocusCard: setFocusedCardId,
-    onDeleteCard: handleDelete,
+    onFocusCard: focusCard,
+    onDeleteCard: handleDeleteSelected,
     onCreateConnectedCard: handleCreateConnectedCard,
     onStartTyping: handleStartTyping,
   });
 
   function handleWheel(event: ReactWheelEvent<HTMLDivElement>) {
     event.preventDefault();
+    // Figma-style wiring: a trackpad two-finger drag and a physical mouse's
+    // scroll wheel are indistinguishable at the DOM level — only pinch (or
+    // an explicit Ctrl+scroll) reliably sets `ctrlKey`. So plain wheel pans,
+    // and only the ctrlKey-flagged gesture zooms toward the cursor.
+    if (!event.ctrlKey) {
+      setPan((prev) => ({ x: prev.x - event.deltaX, y: prev.y - event.deltaY }));
+      return;
+    }
     const rect = viewportRef.current?.getBoundingClientRect();
     if (!rect) return;
     const screenX = event.clientX - rect.left;
@@ -250,39 +315,133 @@ export function CanvasView({ path, vaultRoot, onNavigate, onSynced }: CanvasView
     setPan({ x: screenX - worldXBefore * nextZoom, y: screenY - worldYBefore * nextZoom });
   }
 
-  /** A card's root wrapper and this background both call `focusCard` on
-   *  pointerdown — neither is a naturally-focusable element (a plain `div`,
+  /** Used for keyboard nav and single-target selection (background click,
+   *  marquee click-deselect, note insert) — always collapses to exactly
+   *  `cardId` (or nothing). A card's own pointerdown goes through
+   *  `handleCardPointerDown` instead, which can keep a multi-selection
+   *  intact. Neither target is a naturally-focusable element (a plain `div`,
    *  unlike the promote/note/ghost `<button>`s, which already get real DOM
-   *  focus from the click itself), so without this, clicking one after
-   *  something outside the board previously had focus (a sidebar button)
-   *  would leave `document.activeElement` unchanged — `isWithinBoard()`
-   *  (`useCanvasKeyboardNav.ts`) would then wrongly treat the very click
-   *  that just selected a card as still "outside the board" and ignore the
-   *  arrow key that follows it. `viewportRef` itself is `tabIndex={-1}` so
-   *  it can receive this programmatic focus. */
+   *  focus from the click itself), so without the `viewportRef` focus call
+   *  below, clicking one after something outside the board previously had
+   *  focus (a sidebar button) would leave `document.activeElement`
+   *  unchanged — `isWithinBoard()` (`useCanvasKeyboardNav.ts`) would then
+   *  wrongly treat the very click that just selected a card as still
+   *  "outside the board" and ignore the arrow key that follows it.
+   *  `viewportRef` itself is `tabIndex={-1}` so it can receive this
+   *  programmatic focus. */
   function focusCard(cardId: string | null) {
     setFocusedCardId(cardId);
+    setSelectedCardIds(cardId ? new Set([cardId]) : new Set());
     viewportRef.current?.focus();
   }
 
+  /** Snapshot of a set of cards' current x/y, keyed by id — read fresh off
+   *  `docRef` (not React state) since this runs from pointerdown handlers
+   *  that fire between renders. */
+  function snapshotPositions(ids: ReadonlySet<string>): Map<string, Point> {
+    const snapshot = new Map<string, Point>();
+    for (const card of docRef.current?.cards ?? []) {
+      if (ids.has(card.id)) snapshot.set(card.id, { x: card.x, y: card.y });
+    }
+    return snapshot;
+  }
+
+  /** `CanvasCard`'s `onFocus` — fires on pointerdown anywhere in a card that
+   *  doesn't stop propagation (drag strip, body). Clicking into an existing
+   *  multi-card selection keeps the whole group selected (and snapshots it
+   *  for a potential group drag); clicking anything else collapses to just
+   *  that one card, matching single-select's prior behavior. */
+  function handleCardPointerDown(cardId: string) {
+    setFocusedCardId(cardId);
+    viewportRef.current?.focus();
+    setSelectedCardIds((prev) => {
+      const next = prev.has(cardId) && prev.size > 1 ? prev : new Set([cardId]);
+      groupDragSnapshotRef.current = snapshotPositions(next);
+      return next;
+    });
+  }
+
+  /** `CanvasCard`'s `onDragEnd` — if the pointer released without actually
+   *  dragging the card (a plain click into a multi-selection), narrow the
+   *  selection down to just that card rather than leaving the whole group
+   *  selected. */
+  function handleCardDragEnd(cardId: string, moved: boolean) {
+    if (moved) return;
+    setSelectedCardIds((prev) => (prev.size > 1 && prev.has(cardId) ? new Set([cardId]) : prev));
+  }
+
+  /** Button-routed like PureRef: left (0) drags a marquee-select rect over
+   *  the bare background; middle (1) pans, same as the old any-button drag
+   *  used to do for every button. Left click's selection-vs-marquee outcome
+   *  isn't decided here — it depends on how far the pointer travels, so
+   *  that's resolved in `handleBackgroundPointerUp` instead. */
   function handleBackgroundPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
     if (event.target !== event.currentTarget) return;
-    focusCard(null);
+    viewportRef.current?.focus();
     event.currentTarget.setPointerCapture(event.pointerId);
-    dragState.current = { pointerId: event.pointerId, lastX: event.clientX, lastY: event.clientY };
+
+    if (event.button === 1) {
+      dragState.current = { pointerId: event.pointerId, lastX: event.clientX, lastY: event.clientY };
+      return;
+    }
+    if (event.button === 0) {
+      marqueeDragState.current = { pointerId: event.pointerId, startClientX: event.clientX, startClientY: event.clientY };
+      const rect = event.currentTarget.getBoundingClientRect();
+      setMarquee({ left: event.clientX - rect.left, top: event.clientY - rect.top, width: 0, height: 0 });
+    }
   }
 
   function handleBackgroundPointerMove(event: ReactPointerEvent<HTMLDivElement>) {
-    const drag = dragState.current;
-    if (!drag || drag.pointerId !== event.pointerId) return;
-    const dx = event.clientX - drag.lastX;
-    const dy = event.clientY - drag.lastY;
-    dragState.current = { ...drag, lastX: event.clientX, lastY: event.clientY };
-    setPan((prev) => ({ x: prev.x + dx, y: prev.y + dy }));
+    const panDrag = dragState.current;
+    if (panDrag && panDrag.pointerId === event.pointerId) {
+      const dx = event.clientX - panDrag.lastX;
+      const dy = event.clientY - panDrag.lastY;
+      dragState.current = { ...panDrag, lastX: event.clientX, lastY: event.clientY };
+      setPan((prev) => ({ x: prev.x + dx, y: prev.y + dy }));
+      return;
+    }
+
+    const marqueeDrag = marqueeDragState.current;
+    if (marqueeDrag && marqueeDrag.pointerId === event.pointerId) {
+      const rect = event.currentTarget.getBoundingClientRect();
+      const startLocalX = marqueeDrag.startClientX - rect.left;
+      const startLocalY = marqueeDrag.startClientY - rect.top;
+      const curLocalX = event.clientX - rect.left;
+      const curLocalY = event.clientY - rect.top;
+      setMarquee({
+        left: Math.min(startLocalX, curLocalX),
+        top: Math.min(startLocalY, curLocalY),
+        width: Math.abs(curLocalX - startLocalX),
+        height: Math.abs(curLocalY - startLocalY),
+      });
+    }
   }
 
   function handleBackgroundPointerUp(event: ReactPointerEvent<HTMLDivElement>) {
     if (dragState.current?.pointerId === event.pointerId) dragState.current = null;
+
+    const marqueeDrag = marqueeDragState.current;
+    if (!marqueeDrag || marqueeDrag.pointerId !== event.pointerId) return;
+    marqueeDragState.current = null;
+    setMarquee(null);
+
+    const distance = Math.hypot(event.clientX - marqueeDrag.startClientX, event.clientY - marqueeDrag.startClientY);
+    if (distance < DRAG_CLICK_THRESHOLD_PX) {
+      focusCard(null);
+      return;
+    }
+
+    const worldStart = screenToWorld(marqueeDrag.startClientX, marqueeDrag.startClientY);
+    const worldEnd = screenToWorld(event.clientX, event.clientY);
+    const marqueeRect: Rect = {
+      x: Math.min(worldStart.x, worldEnd.x),
+      y: Math.min(worldStart.y, worldEnd.y),
+      w: Math.abs(worldEnd.x - worldStart.x),
+      h: Math.abs(worldEnd.y - worldStart.y),
+    };
+    const hits = (docRef.current?.cards ?? []).filter((c) => rectsIntersect(marqueeRect, c)).map((c) => c.id);
+    setSelectedCardIds(new Set(hits));
+    setFocusedCardId(hits[0] ?? null);
   }
 
   function handleStartArrow(fromCardId: string, event: ReactPointerEvent) {
@@ -491,14 +650,15 @@ export function CanvasView({ path, vaultRoot, onNavigate, onSynced }: CanvasView
             card={card}
             vaultRoot={vaultRoot}
             zoom={zoom}
-            isFocused={card.id === focusedCardId}
+            isSelected={selectedCardIds.has(card.id)}
             onNavigate={onNavigate}
             onChangeBody={handleChangeBody}
-            onMove={handleMove}
+            onMoveBy={handleMoveBy}
             onResize={handleResize}
             onPromote={(cardId) => void handlePromote(cardId)}
             onDelete={handleDelete}
-            onFocus={focusCard}
+            onFocus={handleCardPointerDown}
+            onDragEnd={handleCardDragEnd}
             onStartArrow={handleStartArrow}
             autoFocus={card.id === autoFocusCardId}
           />
@@ -520,6 +680,22 @@ export function CanvasView({ path, vaultRoot, onNavigate, onSynced }: CanvasView
           />
         )}
       </div>
+      {marquee && (
+        <div
+          className="pointer-events-none absolute border"
+          style={{
+            left: marquee.left,
+            top: marquee.top,
+            width: marquee.width,
+            height: marquee.height,
+            borderColor: 'var(--accent-link)',
+            // Hand-duplicated RGB of --accent-link (tokens.css), matching
+            // CanvasCard.tsx's note-card tint — a plain overlay div, not a
+            // CSS-var-driven element, so var() can't build this alpha fill.
+            backgroundColor: 'rgba(77, 200, 242, 0.12)',
+          }}
+        />
+      )}
       <div className="pointer-events-none absolute left-3 top-3 flex items-center gap-3">
         <span className="text-fg-faint tracking-label uppercase" style={{ fontSize: '0.68rem' }}>
           [canvas]

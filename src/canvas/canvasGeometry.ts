@@ -16,6 +16,12 @@ export function rectCenter(rect: Rect): Point {
   return { x: rect.x + rect.w / 2, y: rect.y + rect.h / 2 };
 }
 
+/** Standard AABB overlap test — used by the marquee-select drag
+ *  (`CanvasView.tsx`) to find which cards fall inside the dragged rect. */
+export function rectsIntersect(a: Rect, b: Rect): boolean {
+  return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+}
+
 /** Point where the ray from `rect`'s center toward `toward` crosses `rect`'s
  *  boundary — used as an arrow's start/end point so it touches the card's
  *  edge instead of floating over its middle. Falls back to the center

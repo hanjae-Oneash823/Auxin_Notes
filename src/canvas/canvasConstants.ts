@@ -7,6 +7,12 @@ export const MIN_ZOOM = 0.2;
 export const MAX_ZOOM = 3;
 export const ZOOM_STEP = 1.15;
 
+/** Pointer-travel distance (screen px) below which a background or card
+ *  pointerdown/up pair counts as a plain click rather than a drag — shared
+ *  by the marquee-select click check and the click-into-multiselect
+ *  narrowing check in CanvasView.tsx/CanvasCard.tsx. */
+export const DRAG_CLICK_THRESHOLD_PX = 4;
+
 /** Corner radius for `arrowPath.ts`'s orthogonal elbow router — shared by
  *  both `CanvasArrow.tsx` (the committed arrow) and `CanvasView.tsx`'s
  *  in-progress dashed preview, so a drawn-then-released arrow doesn't

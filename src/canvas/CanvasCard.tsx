@@ -3,26 +3,34 @@ import type { PointerEvent as ReactPointerEvent } from 'react';
 import { ArrowsOutCardinal, FileText, TrashSimple } from '@phosphor-icons/react';
 import type { CanvasCard as CanvasCardData } from '../vault/canvasTypes';
 import { CardTextEditor } from './CardTextEditor';
-import { MIN_CARD_HEIGHT, MIN_CARD_WIDTH } from './canvasConstants';
+import { DRAG_CLICK_THRESHOLD_PX, MIN_CARD_HEIGHT, MIN_CARD_WIDTH } from './canvasConstants';
 
 interface CanvasCardProps {
   card: CanvasCardData;
   vaultRoot: string;
   zoom: number;
-  isFocused: boolean;
+  isSelected: boolean;
   onNavigate: (path: string) => void;
   onChangeBody: (cardId: string, body: string) => void;
-  onMove: (cardId: string, x: number, y: number) => void;
+  /** Total world-space delta since drag-start, not an absolute position —
+   *  lets CanvasView.tsx apply the same dx/dy to every card in a multi-card
+   *  selection for a rigid group drag. */
+  onMoveBy: (cardId: string, dx: number, dy: number) => void;
   onResize: (cardId: string, w: number, h: number) => void;
   onPromote: (cardId: string) => void;
   onDelete: (cardId: string) => void;
   onFocus: (cardId: string) => void;
+  /** Fires when the drag strip's pointer is released — `moved` is false for
+   *  a plain click (pointer never traveled past `DRAG_CLICK_THRESHOLD_PX`),
+   *  which CanvasView.tsx uses to narrow a multi-selection down to just this
+   *  card rather than leaving the whole group selected. */
+  onDragEnd: (cardId: string, moved: boolean) => void;
   /** Arrow-drawing: mousedown on the connector handle starts a drag that
    *  CanvasView.tsx tracks; released over another card, it creates an arrow. */
   onStartArrow: (cardId: string, event: ReactPointerEvent) => void;
   /** True only for the one card just created via typing/Tab+direction — see
    *  CanvasView.tsx's `autoFocusCardId` doc comment for why this is kept
-   *  separate from `isFocused`. */
+   *  separate from `isSelected`. */
   autoFocus: boolean;
 }
 
@@ -41,20 +49,19 @@ export function CanvasCard({
   card,
   vaultRoot,
   zoom,
-  isFocused,
+  isSelected,
   onNavigate,
   onChangeBody,
-  onMove,
+  onMoveBy,
   onResize,
   onPromote,
   onDelete,
   onFocus,
+  onDragEnd,
   onStartArrow,
   autoFocus,
 }: CanvasCardProps) {
-  const dragOrigin = useRef<{ pointerId: number; startClientX: number; startClientY: number; cardX: number; cardY: number } | null>(
-    null,
-  );
+  const dragOrigin = useRef<{ pointerId: number; startClientX: number; startClientY: number; moved: boolean } | null>(null);
   const resizeOrigin = useRef<{ pointerId: number; startClientX: number; startClientY: number; w: number; h: number } | null>(
     null,
   );
@@ -67,8 +74,7 @@ export function CanvasCard({
       pointerId: event.pointerId,
       startClientX: event.clientX,
       startClientY: event.clientY,
-      cardX: card.x,
-      cardY: card.y,
+      moved: false,
     };
   }
 
@@ -80,11 +86,16 @@ export function CanvasCard({
     // drag-pan does for its own zoomed viewBox.
     const dx = (event.clientX - drag.startClientX) / zoom;
     const dy = (event.clientY - drag.startClientY) / zoom;
-    onMove(card.id, drag.cardX + dx, drag.cardY + dy);
+    const traveled = Math.hypot(event.clientX - drag.startClientX, event.clientY - drag.startClientY);
+    dragOrigin.current = { ...drag, moved: drag.moved || traveled > DRAG_CLICK_THRESHOLD_PX };
+    onMoveBy(card.id, dx, dy);
   }
 
   function handleDragPointerUp(event: ReactPointerEvent<HTMLDivElement>) {
-    if (dragOrigin.current?.pointerId === event.pointerId) dragOrigin.current = null;
+    const drag = dragOrigin.current;
+    if (drag?.pointerId !== event.pointerId) return;
+    dragOrigin.current = null;
+    onDragEnd(card.id, drag.moved);
   }
 
   function handleResizePointerDown(event: ReactPointerEvent<HTMLDivElement>) {
@@ -117,16 +128,16 @@ export function CanvasCard({
         top: card.y,
         width: card.w,
         height: card.h,
-        borderColor: isFocused ? 'var(--accent-link)' : isNote ? 'var(--accent-link)' : isGhost ? 'var(--border)' : 'var(--border)',
-        borderWidth: isFocused ? 2 : 1,
+        borderColor: isSelected ? 'var(--accent-link)' : isNote ? 'var(--accent-link)' : isGhost ? 'var(--border)' : 'var(--border)',
+        borderWidth: isSelected ? 2 : 1,
         borderStyle: isGhost ? 'dashed' : 'solid',
-        borderLeftWidth: isNote ? 3 : isFocused ? 2 : 1,
+        borderLeftWidth: isNote ? 3 : isSelected ? 2 : 1,
         // Hand-duplicated RGB of --accent-link (tokens.css) — this alpha-
         // composited string can't be built from var() the way a plain
         // color property can.
         backgroundColor: isNote ? 'rgba(77, 200, 242, 0.05)' : undefined,
         opacity: isGhost ? 0.55 : 1,
-        boxShadow: isFocused ? '0 0 0 1px var(--accent-link)' : undefined,
+        boxShadow: isSelected ? '0 0 0 1px var(--accent-link)' : undefined,
       }}
       onPointerDown={() => onFocus(card.id)}
     >
