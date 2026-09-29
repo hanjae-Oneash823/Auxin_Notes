@@ -1,7 +1,7 @@
+import { fillGreeting, randomGreeting } from './home/greetings';
 import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { FilePdf, FilePlus, Stack } from '@phosphor-icons/react';
 import { getDb } from '../db/client';
 import { formatCount } from './noteStats';
 import {
@@ -106,27 +106,24 @@ function FactTile({ value, label, caption }: FactTileProps) {
 interface HeaderActionProps {
   label: string;
   onClick: () => void;
-  /** Tints the button with the PDF red (icon, label and border). */
+  /** Tints the label with the PDF red. */
   isRed?: boolean;
-  children: ReactNode;
 }
 
-/** The two creators that sit beside the welcome header — icon + label,
- *  same hover language as SidebarNav's NavRow, sized for a compact pair
- *  rather than a full-width row. */
-function HeaderAction({ label, onClick, isRed = false, children }: HeaderActionProps) {
+/** The creators under the welcome header — plain bracketed text, matching the
+ *  dashboard's other `[...]` labels (note count, "back to hub view"). */
+function HeaderAction({ label, onClick, isRed = false }: HeaderActionProps) {
   const tone = isRed
-    ? 'border-border-subtle text-accent-link-broken hover:border-accent-link-broken hover:bg-border-subtle'
-    : 'border-border-subtle text-fg-muted hover:border-border hover:bg-border-subtle hover:text-fg-prominent';
+    ? 'text-accent-link-broken hover:brightness-125'
+    : 'text-fg-faint hover:text-fg-prominent';
   return (
     <button
       type="button"
       onClick={onClick}
-      className={`flex items-center gap-1.5 rounded-row border px-2.5 py-1.5 transition-colors duration-panel ease-panel ${tone}`}
+      className={`transition-colors duration-panel ease-panel ${tone}`}
       style={{ fontSize: '0.8rem' }}
     >
-      {children}
-      <span>{label}</span>
+      [{label}]
     </button>
   );
 }
@@ -153,6 +150,8 @@ export function HomeDashboard({
   workspaceColors,
   onSwitchWorkspace,
 }: HomeDashboardProps) {
+  // Re-rolled each time the dashboard mounts, i.e. every time Home is shown anew.
+  const [greeting] = useState(randomGreeting);
   const [recent, setRecent] = useState<RecentNoteEntry[]>([]);
   const [recentPdfs, setRecentPdfs] = useState<RecentNoteEntry[]>([]);
   const [topTags, setTopTags] = useState<TagCount[]>([]);
@@ -201,7 +200,7 @@ export function HomeDashboard({
         [...pdfs]
           .sort((a, b) => b.modified.localeCompare(a.modified))
           .slice(0, RECENT_PDFS_COUNT)
-          .map((pdf) => ({ id: pdf.id, path: pdf.path, title: pdf.title, modified: pdf.modified, tags: [], excerpt: '', isHub: false, isCanvas: false, isPdf: true })),
+          .map((pdf) => ({ id: pdf.id, path: pdf.path, title: pdf.title, modified: pdf.modified, tags: [], excerpt: '', isHub: false, isCanvas: false, isPdf: true, sizeBytes: pdf.sizeBytes })),
       );
       setTopTags([...tagRows].sort((a, b) => b.count - a.count).slice(0, TOP_TAGS_LIMIT));
       const folderPaths = folderAbsolutePaths.map((path) => toRelativePath(vaultRoot, path));
@@ -254,7 +253,7 @@ export function HomeDashboard({
 
           {userName && (
             <h1 className="text-fg-prominent" style={{ fontSize: '2.4em', fontWeight: 700 }}>
-              Welcome back, {userName}
+              {fillGreeting(greeting, userName)}
             </h1>
           )}
           <div className="flex gap-4 text-fg-faint" style={{ fontSize: '0.75rem' }}>
@@ -268,16 +267,10 @@ export function HomeDashboard({
             )}
           </div>
 
-          <div className="flex gap-1.5">
-            <HeaderAction label="New note" onClick={onNewNote}>
-              <FilePlus size={16} />
-            </HeaderAction>
-            <HeaderAction label="New canvas" onClick={onNewCanvas}>
-              <Stack size={16} />
-            </HeaderAction>
-            <HeaderAction label="Import PDF" onClick={onImportPdf} isRed>
-              <FilePdf size={16} />
-            </HeaderAction>
+          <div className="-mt-3.5 flex gap-3">
+            <HeaderAction label="New note" onClick={onNewNote} />
+            <HeaderAction label="New canvas" onClick={onNewCanvas} />
+            <HeaderAction label="Import PDF" onClick={onImportPdf} isRed />
           </div>
 
           {vaultStats && (
@@ -301,7 +294,7 @@ export function HomeDashboard({
           )}
         </div>
 
-        <div className="flex min-w-0 flex-1 flex-col justify-center">
+        <div className="flex w-2/5 min-w-0 shrink-0 flex-col justify-center">
           <DashboardCard>
             {folderTree && <FolderBubbleCluster key={vaultRoot} root={folderTree} onSelectNote={openNote} />}
           </DashboardCard>

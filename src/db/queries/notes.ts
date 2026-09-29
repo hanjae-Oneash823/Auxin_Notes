@@ -13,6 +13,8 @@ export interface NoteSummary {
   isCanvas: boolean;
   /** A `.pdf` file, listed from disk rather than the index (see pdf/pdfFiles.ts). */
   isPdf: boolean;
+  /** File size in bytes; only set on PDFs (from the disk listing). */
+  sizeBytes?: number;
 }
 
 export interface ListNotesOptions {

@@ -17,6 +17,8 @@ export interface RecentNoteEntry {
   isCanvas: boolean;
   /** A PDF card (built from the disk listing, not the index). */
   isPdf: boolean;
+  /** File size in bytes (PDF cards only). */
+  sizeBytes?: number;
 }
 
 export interface TopLinkedNote {

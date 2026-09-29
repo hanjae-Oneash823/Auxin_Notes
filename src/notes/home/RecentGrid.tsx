@@ -4,6 +4,7 @@ import { trackGlow } from '../../layout/trackGlow';
 import { formatRelativeTime } from '../noteStats';
 import { cleanExcerpt } from './cleanExcerpt';
 import { NoteKindIcon } from './NoteKindIcon';
+import { PdfSize } from '../../pdf/PdfSize';
 
 const CARD_EXCERPT_LIMIT = 140;
 const TITLE_MAX_LINES = 2;
@@ -68,6 +69,7 @@ export function RecentGrid({ notes, onSelect }: RecentGridProps) {
             <div className="flex items-start gap-2">
               <NoteKindIcon isHub={note.isHub} isCanvas={note.isCanvas} isPdf={note.isPdf} size={15} className="mt-[3px]" />
               <span className="min-w-0 flex-1 break-words font-medium" style={TITLE_STYLE}>
+                {note.isPdf && <PdfSize bytes={note.sizeBytes} />}
                 {note.title}
               </span>
             </div>
