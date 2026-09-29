@@ -1,5 +1,6 @@
 use base64::{engine::general_purpose, Engine as _};
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
+use serde::Serialize;
 use std::io::{Read, Write};
 use std::sync::{Arc, Mutex};
 use tauri::ipc::Channel;
@@ -131,6 +132,63 @@ pub fn terminal_write(state: State<TerminalState>, data: String) -> Result<(), S
     let mut guard = state.session.lock().map_err(|e| e.to_string())?;
     let session = guard.as_mut().ok_or("terminal not running")?;
     session.writer.write_all(data.as_bytes()).map_err(|e| e.to_string())
+}
+
+/// What the terminal is doing right now, for the preset launchers.
+#[derive(Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TerminalStatus {
+    /// No shell has been started yet.
+    None,
+    /// The shell itself owns the terminal — sitting at its prompt.
+    Idle,
+    /// A program (claude, vim, a build...) is in the foreground.
+    Busy,
+}
+
+/// Busy means the terminal's foreground process group is not the shell's own
+/// — the shell is a session leader, so its process group id is its pid.
+/// Where the foreground group can't be read (Windows), reports idle.
+#[tauri::command]
+pub fn terminal_status(state: State<TerminalState>) -> Result<TerminalStatus, String> {
+    let guard = state.session.lock().map_err(|e| e.to_string())?;
+    let Some(session) = guard.as_ref() else {
+        return Ok(TerminalStatus::None);
+    };
+    let is_busy = match (session.child.process_id(), session.master.process_group_leader()) {
+        (Some(shell), Some(foreground)) => foreground as u32 != shell,
+        _ => false,
+    };
+    Ok(if is_busy { TerminalStatus::Busy } else { TerminalStatus::Idle })
+}
+
+/// Signals the terminal's foreground program (its whole process group, so a
+/// `claude` and its children go together) — SIGTERM, or SIGKILL when `force`.
+/// The shell itself is never signalled: nothing happens if it's at its prompt.
+#[tauri::command]
+pub fn terminal_stop(state: State<TerminalState>, force: bool) -> Result<(), String> {
+    #[cfg(unix)]
+    {
+        let guard = state.session.lock().map_err(|e| e.to_string())?;
+        let session = guard.as_ref().ok_or("terminal not running")?;
+        let (Some(shell), Some(foreground)) = (session.child.process_id(), session.master.process_group_leader())
+        else {
+            return Ok(());
+        };
+        if foreground as u32 == shell {
+            return Ok(());
+        }
+        let signal = if force { libc::SIGKILL } else { libc::SIGTERM };
+        if unsafe { libc::killpg(foreground as libc::pid_t, signal) } != 0 {
+            return Err(std::io::Error::last_os_error().to_string());
+        }
+        Ok(())
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (state, force);
+        Err("stopping the terminal process is not supported on this platform".to_string())
+    }
 }
 
 #[tauri::command]

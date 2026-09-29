@@ -1,28 +1,17 @@
 import { useEffect, useRef } from 'react';
-import type { PointerEvent as ReactPointerEvent } from 'react';
 import { Channel, invoke } from '@tauri-apps/api/core';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
-import { FONT_SIZE_OPTIONS, MIN_PANEL_HEIGHT, MIN_PANEL_WIDTH } from './terminalPanelConstants';
+import { getTerminalTheme } from './terminalThemes';
 import { getPastedImageFile, savePastedImageForTerminal } from './terminalImagePaste';
 
-const PANEL_GAP = 12;
-const VIEWPORT_MARGIN = 8;
+const SCROLLBAR_WIDTH_PX = 8;
 
 interface TerminalPanelProps {
-  isOpen: boolean;
-  onClose: () => void;
   vaultRoot?: string;
-  buttonX: number;
-  buttonY: number;
-  buttonSize: number;
-  width: number;
-  height: number;
-  onResize: (width: number, height: number) => void;
-  onResizeEnd: (width: number, height: number) => void;
   fontSize: number;
-  onFontSizeChange: (fontSize: number) => void;
+  themeId: string;
 }
 
 function base64ToBytes(base64: string): Uint8Array {
@@ -32,64 +21,14 @@ function base64ToBytes(base64: string): Uint8Array {
   return bytes;
 }
 
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(Math.max(value, min), max);
-}
-
-/** Which edges the panel opens away from the button on — upward from a
- *  button near the bottom of the screen, downward from one near the top,
- *  mirrored left/right the same way. `opensLeft`/`opensUp` each mean the
- *  *far* edge (right/bottom respectively) is the one pinned near the
- *  button; the near edge is the one that's free to move. The resize handle
- *  below needs this same answer to know which corner is actually free to
- *  drag — a handle on a pinned corner would fight the anchor instead of
- *  resizing anything. */
-function anchorSides(buttonX: number, buttonY: number, buttonSize: number): { opensLeft: boolean; opensUp: boolean } {
-  return {
-    opensLeft: buttonX + buttonSize / 2 > window.innerWidth / 2,
-    opensUp: buttonY + buttonSize / 2 > window.innerHeight / 2,
-  };
-}
-
-/** Clamps to the viewport so a button dragged into a corner never pushes
- *  the panel off-screen. */
-function anchorPosition(
-  opensLeft: boolean,
-  opensUp: boolean,
-  buttonX: number,
-  buttonY: number,
-  buttonSize: number,
-  panelWidth: number,
-  panelHeight: number,
-): { left: number; top: number } {
-  const left = opensLeft ? buttonX + buttonSize - panelWidth : buttonX;
-  const top = opensUp ? buttonY - PANEL_GAP - panelHeight : buttonY + buttonSize + PANEL_GAP;
-
-  const maxLeft = Math.max(window.innerWidth - panelWidth - VIEWPORT_MARGIN, VIEWPORT_MARGIN);
-  const maxTop = Math.max(window.innerHeight - panelHeight - VIEWPORT_MARGIN, VIEWPORT_MARGIN);
-  return { left: clamp(left, VIEWPORT_MARGIN, maxLeft), top: clamp(top, VIEWPORT_MARGIN, maxTop) };
-}
-
-/** Mounted once, the first time the panel opens, and never unmounted after
- *  (see `TerminalLauncher`) — closing just toggles `visibility` rather than
- *  `display`, so the container keeps a real size for `FitAddon` while
- *  hidden. That keeps the xterm.js instance and its on-screen scrollback
- *  alive across close/reopen, matching the shell process itself staying
- *  alive on the Rust side (`terminal_spawn` reuses an existing session). */
-export function TerminalPanel({
-  isOpen,
-  onClose,
-  vaultRoot,
-  buttonX,
-  buttonY,
-  buttonSize,
-  width,
-  height,
-  onResize,
-  onResizeEnd,
-  fontSize,
-  onFontSizeChange,
-}: TerminalPanelProps) {
+/** The xterm.js host. Mounted the first time the right panel's terminal layer
+ *  is shown and never unmounted after (see `App.tsx`) — switching to another
+ *  layer only hides it with `display: none`, so the xterm.js instance and its
+ *  scrollback survive, matching the shell process staying alive on the Rust
+ *  side (`terminal_spawn` reuses an existing session). While hidden the
+ *  container has no size, which `FitAddon` treats as "nothing to fit"; the
+ *  ResizeObserver below refits as soon as it is shown again. */
+export function TerminalPanel({ vaultRoot, fontSize, themeId }: TerminalPanelProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
@@ -118,17 +57,13 @@ export function TerminalPanel({
       lineHeight: 1,
       letterSpacing: 0,
       cursorBlink: true,
-      // Literal hex, not var(--...) — xterm's theme option is consumed at
-      // construction time by its own canvas renderer, not the DOM, so it
-      // can't resolve CSS custom properties. Kept in sync by hand with
-      // tokens.css's --color-bg/--fg-full/--accent-link.
-      theme: {
-        background: '#1a1a1c',
-        foreground: '#ffffff',
-        cursor: '#4dc8f2',
-        cursorAccent: '#1a1a1c',
-        selectionBackground: 'rgba(255, 255, 255, 0.18)',
-      },
+      // xterm 6 draws its own scrollbar and takes its width from here (default
+      // 14px). Also sets the gutter it reserves, so the text area gains the space.
+      overviewRuler: { width: SCROLLBAR_WIDTH_PX },
+      // Colors come from terminalThemes.ts (literal hex there — xterm can't
+      // resolve CSS variables). Later changes go through the `[themeId]`
+      // effect below, live, without remounting.
+      theme: getTerminalTheme(themeId),
     });
     termRef.current = term;
     const fitAddon = new FitAddon();
@@ -289,6 +224,10 @@ export function TerminalPanel({
   }, []);
 
   useEffect(() => {
+    if (termRef.current) termRef.current.options.theme = getTerminalTheme(themeId);
+  }, [themeId]);
+
+  useEffect(() => {
     const term = termRef.current;
     const fitAddon = fitAddonRef.current;
     if (!term || !fitAddon) return;
@@ -300,100 +239,9 @@ export function TerminalPanel({
     void invoke('terminal_resize', { cols: term.cols, rows: term.rows });
   }, [fontSize]);
 
-  const { opensLeft, opensUp } = anchorSides(buttonX, buttonY, buttonSize);
-
-  /** Whichever corner is free (not pinned to the button by `anchorPosition`)
-   *  — dragging away from the pinned edge grows the panel, so a free left
-   *  edge inverts the horizontal delta's sign, and likewise for a free top
-   *  edge vertically. */
-  function handleResizeHandlePointerDown(event: ReactPointerEvent<HTMLDivElement>) {
-    event.currentTarget.setPointerCapture(event.pointerId);
-    const startX = event.clientX;
-    const startY = event.clientY;
-    const startWidth = width;
-    const startHeight = height;
-    const maxWidth = Math.max(window.innerWidth - VIEWPORT_MARGIN * 2, MIN_PANEL_WIDTH);
-    const maxHeight = Math.max(window.innerHeight - VIEWPORT_MARGIN * 2, MIN_PANEL_HEIGHT);
-
-    function nextSize(clientX: number, clientY: number): { width: number; height: number } {
-      const dx = clientX - startX;
-      const dy = clientY - startY;
-      const width = clamp(startWidth + (opensLeft ? -dx : dx), MIN_PANEL_WIDTH, maxWidth);
-      const height = clamp(startHeight + (opensUp ? -dy : dy), MIN_PANEL_HEIGHT, maxHeight);
-      return { width, height };
-    }
-
-    function handleMove(moveEvent: PointerEvent) {
-      const next = nextSize(moveEvent.clientX, moveEvent.clientY);
-      onResize(next.width, next.height);
-    }
-
-    function handleUp(upEvent: PointerEvent) {
-      window.removeEventListener('pointermove', handleMove);
-      window.removeEventListener('pointerup', handleUp);
-      const next = nextSize(upEvent.clientX, upEvent.clientY);
-      onResizeEnd(next.width, next.height);
-    }
-
-    window.addEventListener('pointermove', handleMove);
-    window.addEventListener('pointerup', handleUp);
-  }
-
-  const { left, top } = anchorPosition(opensLeft, opensUp, buttonX, buttonY, buttonSize, width, height);
-
-  return (
-    <div
-      className="fixed z-40 flex flex-col border border-border-strong bg-bg"
-      style={{
-        left,
-        top,
-        width,
-        height,
-        visibility: isOpen ? 'visible' : 'hidden',
-        boxShadow: 'var(--shadow-float)',
-      }}
-    >
-      <div className="flex shrink-0 items-center justify-between border-b border-border px-2 py-1">
-        <span className="text-fg-faint tracking-menu uppercase" style={{ fontSize: '0.68rem' }}>
-          [terminal]
-        </span>
-        <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1">
-            {FONT_SIZE_OPTIONS.map((option) => (
-              <button
-                key={option}
-                type="button"
-                title={`${option}pt`}
-                onClick={() => onFontSizeChange(option)}
-                className={`transition-colors duration-panel ease-panel ${
-                  option === fontSize ? 'text-fg-prominent' : 'text-fg-faint hover:text-fg-muted'
-                }`}
-                style={{ fontSize: '0.68rem' }}
-              >
-                [{option}]
-              </button>
-            ))}
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="text-fg-faint transition-colors duration-panel ease-panel hover:text-fg-prominent"
-            style={{ fontSize: '0.72rem' }}
-          >
-            [x]
-          </button>
-        </div>
-      </div>
-      <div ref={containerRef} className="min-h-0 flex-1 overflow-hidden p-1" />
-      <div
-        onPointerDown={handleResizeHandlePointerDown}
-        className={`group absolute flex h-4 w-4 p-0.5 ${opensLeft ? 'left-0 justify-start' : 'right-0 justify-end'} ${
-          opensUp ? 'top-0 items-start' : 'bottom-0 items-end'
-        } ${opensLeft === opensUp ? 'cursor-nwse-resize' : 'cursor-nesw-resize'}`}
-        style={{ touchAction: 'none' }}
-      >
-        <div className="h-2.5 w-2.5 border border-black bg-white opacity-0 transition-opacity duration-panel ease-panel group-hover:opacity-100" />
-      </div>
-    </div>
-  );
+  // Bleeds to the packet's left/bottom edges (-ml-1.5/-mb-1.5 cancel its
+  // px-1.5/pb-1.5) and on the right through the packet's 6px and the panel's
+  // 8px (-mr-3.5) to the window edge, with no inset on that side so xterm's
+  // scrollbar sits flush against it. p-1 keeps text off the other edges.
+  return <div ref={containerRef} className="-mb-1.5 -ml-1.5 -mr-3.5 min-h-0 flex-1 overflow-hidden py-1 pl-1 pr-0" />;
 }

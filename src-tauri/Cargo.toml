@@ -33,6 +33,9 @@ notify-debouncer-full = "0.7.0"
 base64 = "0.23.1"
 portable-pty = "0.8"
 
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 # macOS-only: converts the "filesearcher" popup into a non-activating
 # NSPanel so it can receive keystrokes without making the app "active" —
 # see src-tauri/src/commands/popup_panel.rs for why.

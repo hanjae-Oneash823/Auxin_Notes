@@ -5,10 +5,10 @@ mod watcher;
 use commands::app_config::{get_app_config, set_app_config};
 use commands::popup_panel::{hide_popup_panel, show_popup_panel};
 use commands::fs_ops::{
-    allow_vault_asset_access, copy_image_file, delete_folder, delete_note, ensure_dir, existing_paths, move_folder,
-    read_note, rename_note, save_image_data, write_note,
+    allow_vault_asset_access, copy_image_file, delete_folder, delete_note, ensure_dir, existing_paths, import_file,
+    move_folder, read_note, rename_note, save_image_data, write_note,
 };
-use commands::terminal::{terminal_kill, terminal_resize, terminal_spawn, terminal_write, TerminalState};
+use commands::terminal::{terminal_kill, terminal_resize, terminal_spawn, terminal_status, terminal_stop, terminal_write, TerminalState};
 use commands::vault_scan::{list_vault_files, list_vault_folders};
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 use watcher::{watch_vault, WatcherState};
@@ -96,6 +96,7 @@ pub fn run() {
             allow_vault_asset_access,
             save_image_data,
             copy_image_file,
+            import_file,
             list_vault_files,
             list_vault_folders,
             watch_vault,
@@ -107,6 +108,8 @@ pub fn run() {
             terminal_write,
             terminal_resize,
             terminal_kill,
+            terminal_status,
+            terminal_stop,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
