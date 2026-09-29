@@ -1,9 +1,11 @@
 import type { ReactNode } from 'react';
-import { CirclesThree, Compass, FilePdf, Note, PushPin } from '@phosphor-icons/react';
+import { CirclesThree, Compass, FilePdf, Note, PushPin, Trash } from '@phosphor-icons/react';
 import { openFileSearcherWindow } from '../fileSearcher/openFileSearcherWindow';
 import { useStickyStore } from '../sticky/stickyStore';
 import { CountBadge } from './CountBadge';
+import { EmptyTrashButton } from './EmptyTrashButton';
 import { SidebarPacket } from './SidebarPacket';
+import { TRASH_COLOR_CLASS } from '../vault/trash';
 
 interface SidebarNavProps {
   isPinnedOpen: boolean;
@@ -15,6 +17,11 @@ interface SidebarNavProps {
   isPdfsOpen: boolean;
   onTogglePdfs: () => void;
   pdfCount: number;
+  /** Items currently in the bin. */
+  trashCount: number;
+  /** Opens the right panel's file browser on the bin. */
+  onOpenTrash: () => void;
+  onEmptyTrash: () => void;
 }
 
 interface NavRowProps {
@@ -24,10 +31,13 @@ interface NavRowProps {
   onClick: () => void;
   /** A count shown in a small square at the row's right end. */
   count?: number;
+  isTrash?: boolean;
+  /** Shown just left of the count. */
+  trailing?: ReactNode;
   children: ReactNode;
 }
 
-function NavRow({ label, title, isActive, onClick, count, children }: NavRowProps) {
+function NavRow({ label, title, isActive, onClick, count, isTrash = false, trailing, children }: NavRowProps) {
   return (
     <button
       type="button"
@@ -40,7 +50,12 @@ function NavRow({ label, title, isActive, onClick, count, children }: NavRowProp
     >
       {children}
       <span className="truncate">{label}</span>
-      {count !== undefined && <CountBadge count={count} className="ml-auto" />}
+      {(trailing || count !== undefined) && (
+        <span className="ml-auto flex items-center gap-1.5">
+          {trailing}
+          {count !== undefined && <CountBadge count={count} tone={isTrash ? 'orange' : 'green'} />}
+        </span>
+      )}
     </button>
   );
 }
@@ -61,6 +76,9 @@ export function SidebarNav({
   isPdfsOpen,
   onTogglePdfs,
   pdfCount,
+  trashCount,
+  onOpenTrash,
+  onEmptyTrash,
 }: SidebarNavProps) {
   const stickyCount = useStickyStore((state) => state.notes.length);
 
@@ -90,6 +108,12 @@ export function SidebarNav({
       </NavRow>
       <NavRow label="Sticky board" isActive={isStickyMode} onClick={onToggleStickyMode} count={stickyCount}>
         <Note size={16} />
+      </NavRow>
+      <NavRow label="Trash" title="open the trash in the file browser" isActive={false} onClick={onOpenTrash} count={trashCount}
+        isTrash
+        trailing={trashCount > 0 ? <EmptyTrashButton onClick={onEmptyTrash} /> : undefined}
+      >
+        <Trash size={16} className={TRASH_COLOR_CLASS} />
       </NavRow>
     </SidebarPacket>
   );

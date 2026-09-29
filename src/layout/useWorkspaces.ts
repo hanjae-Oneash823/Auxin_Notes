@@ -144,6 +144,10 @@ export function useWorkspaces(vaultRoot: string | null) {
   const moveTabToWorkspace = (tabId: string, targetName: string) => sendTabToWorkspace(tabId, targetName, false);
   const duplicateTabToWorkspace = (tabId: string, targetName: string) => sendTabToWorkspace(tabId, targetName, true);
 
+  function setScratchpad(text: string) {
+    updateCurrent((w) => ({ ...w, scratchpad: text }));
+  }
+
   function setWorkspaceColor(name: string, color: string | null) {
     setWorkspaces((prev) => prev.map((w) => (w.name === name ? { ...w, color } : w)));
   }
@@ -193,6 +197,8 @@ export function useWorkspaces(vaultRoot: string | null) {
     workspaceNames: names,
     workspaceColors: Object.fromEntries(workspaces.map((w) => [w.name, w.color])),
     setWorkspaceColor,
+    scratchpad: current.scratchpad,
+    setScratchpad,
     currentWorkspace: current.name,
     stepWorkspace,
     switchWorkspace,

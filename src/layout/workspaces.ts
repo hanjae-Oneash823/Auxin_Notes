@@ -10,6 +10,8 @@ export interface Workspace {
   color: string | null;
   /** Tabs the user flagged (yellow, with a flag icon); a subset of `tabs`. */
   flagged: string[];
+  /** Free-text jotting shown under the tab list; belongs to this workspace. */
+  scratchpad: string;
 }
 
 /** The colors a workspace can be tinted with — a small fixed set, so the
@@ -34,7 +36,7 @@ export function workspaceTint(color: string | null, strengthPercent = 28): strin
 export const DEFAULT_WORKSPACE = 'default';
 
 export function emptyWorkspace(name: string): Workspace {
-  return { name, tabs: [HOME_TAB_ID], active: HOME_TAB_ID, color: null, flagged: [] };
+  return { name, tabs: [HOME_TAB_ID], active: HOME_TAB_ID, color: null, flagged: [], scratchpad: '' };
 }
 
 /** Rewrites every tab id (and the focused one) — a moved/renamed note or folder. */

@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { useHorizontalSwipe } from './useHorizontalSwipe';
 import { ResizeHandle } from './ResizeHandle';
 import { SIDEBAR_TOGGLE_EASING, SIDEBAR_TOGGLE_MS, usePanelLayoutStore } from './panelLayoutStore';
 import { CHROME_STRIP_CLASS, hasWindowChrome } from './WindowChrome';
@@ -9,6 +10,8 @@ interface SidebarProps {
   /** Fired once when a resize drag ends (not per-frame) — the caller
    *  persists it; the live width during drag is just a CSS var, no state. */
   onResizeEnd: (widthPx: number) => void;
+  /** Two-finger horizontal trackpad swipe over the panel (+1 = swipe left). */
+  onSwipe?: (direction: 1 | -1) => void;
 }
 
 // Even 8px inset on both sides (top is set separately — it clears the window
@@ -39,7 +42,8 @@ const PANEL_PADDING_CLASSES = 'px-2 pb-2';
  *  it would cut off the outer half of the resize handle that straddles the
  *  edge. `visibility` flips after the close finishes so a hidden panel can't
  *  be tabbed into. */
-export function Sidebar({ side, children, onResizeEnd }: SidebarProps) {
+export function Sidebar({ side, children, onResizeEnd, onSwipe }: SidebarProps) {
+  const handleWheel = useHorizontalSwipe(onSwipe);
   const isOpen = usePanelLayoutStore((state) => (side === 'left' ? state.isLeftSidebarOpen : state.isRightSidebarOpen));
   const isToggling = usePanelLayoutStore((state) => state.isToggling);
   const cssVar = side === 'left' ? '--width-sidebar-left' : '--width-sidebar-right';
@@ -66,6 +70,7 @@ export function Sidebar({ side, children, onResizeEnd }: SidebarProps) {
     >
       {hasChrome && <div data-tauri-drag-region className={`absolute inset-x-0 top-0 z-10 ${CHROME_STRIP_CLASS}`} />}
       <aside
+        onWheel={handleWheel}
         style={{ width: `var(${cssVar})` }}
         className={`relative flex h-full shrink-0 flex-col gap-2 overflow-y-auto overflow-x-hidden bg-bg-panel ${
           hasChrome ? 'pt-9' : 'pt-2'

@@ -10,7 +10,7 @@ const TOGGLE_SETTLE_BUFFER_MS = 40;
 
 /** Left-to-right order of the icon bar. `links` shows backlinks, unresolved links and the tag browser together;
  *  `terminal` is the shell (kept mounted while hidden — see App.tsx). */
-export const RIGHT_PANEL_LAYERS = ['search', 'files', 'terminal', 'contents', 'links'] as const;
+export const RIGHT_PANEL_LAYERS = ['search', 'files', 'browser', 'terminal', 'contents', 'links'] as const;
 export type RightPanelLayer = (typeof RIGHT_PANEL_LAYERS)[number];
 const DEFAULT_RIGHT_LAYER: RightPanelLayer = 'files';
 
@@ -31,6 +31,9 @@ interface PanelLayoutState {
   isToggling: boolean;
   toggleSidebar: (side: SidebarSide) => void;
   setRightLayer: (layer: RightPanelLayer) => void;
+  /** Folder the right panel's file browser is showing (session-only, not persisted). */
+  browserPath: string;
+  setBrowserPath: (path: string) => void;
   /** Restores the persisted layout — call once at startup. No animation. */
   initFromConfig: () => Promise<void>;
 }
@@ -58,6 +61,8 @@ export const usePanelLayoutStore = create<PanelLayoutState>((set, get) => ({
   isLeftSidebarOpen: true,
   isRightSidebarOpen: true,
   activeRightLayer: DEFAULT_RIGHT_LAYER,
+  browserPath: '',
+  setBrowserPath: (path) => set({ browserPath: path }),
   isToggling: false,
 
   toggleSidebar: (side) => {

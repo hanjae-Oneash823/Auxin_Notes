@@ -5,6 +5,7 @@ import { getDb } from '../db/client';
 import { getCollapsedTabGroups, setCollapsedTabGroups } from '../db/queries/folderState';
 import type { NoteSummary } from '../db/queries/notes';
 import { toRelativePath } from '../vault/syncEngine';
+import { announceCanvasDrag, announceCanvasDrop, isOverCanvas, type CanvasDropDetail } from '../canvas/canvasDrop';
 import { uniqueFolderName } from '../vault/folderEngine';
 import { usePanelLayoutStore } from './panelLayoutStore';
 import { buildTabGroupTree, groupNotesByFolder, type TabGroupNode } from './tabGroups';
@@ -51,7 +52,7 @@ const TAB_ICONS: Record<TabKind, Icon> = {
 };
 
 /** Inactive PDF tabs get a dull-red tint (same idea as the flagged tabs' yellow one). */
-const PDF_TAB_BG_CLASS = 'bg-[color-mix(in_srgb,var(--accent-link-broken)_15%,transparent)]';
+export const PDF_TAB_BG_CLASS = 'bg-[color-mix(in_srgb,var(--accent-link-broken)_15%,transparent)]';
 
 /** Left inset of a card's detail lines: icon width (15) + gap (8), so they
  *  line up under the title rather than under the icon. */
@@ -61,7 +62,7 @@ const DETAIL_INDENT_CLASS = 'pl-[23px]';
  *  just takes one line (line-clamp only kicks in on overflow). The 1.4
  *  line-height keeps the icon/close button aligned to the first line. */
 const TITLE_MAX_LINES = 2;
-const TITLE_CLAMP_STYLE = {
+export const TITLE_CLAMP_STYLE = {
   fontSize: '0.85rem',
   lineHeight: 1.4,
   display: '-webkit-box',
@@ -557,6 +558,22 @@ export function TabBar({
     return lastId ? { id: lastId, placeAfter: true } : null;
   }
 
+  /** The tab, if it is a note, hub or PDF — the kinds that can become canvas cards. */
+  function droppableTab(tabId: string): TabItem | null {
+    const tab = tabs.find((t) => t.id === tabId);
+    return tab && (tab.kind === 'note' || tab.kind === 'hub' || tab.kind === 'pdf') ? tab : null;
+  }
+
+  function canvasDetail(tab: TabItem, event: MouseEvent): CanvasDropDetail {
+    return {
+      path: toRelativePath(vaultRoot, tab.id),
+      isPdf: tab.kind === 'pdf',
+      isCanvas: false,
+      clientX: event.clientX,
+      clientY: event.clientY,
+    };
+  }
+
   function handleMouseDown(tabId: string, parentPath: string, event: React.MouseEvent) {
     if (event.button !== 0) return;
     dragState.current = { id: tabId, startX: event.clientX, startY: event.clientY, moved: false };
@@ -580,13 +597,25 @@ export function TabBar({
       }
       if (!state.moved) return;
 
+      // Over the canvas the tab is on its way to becoming a card: show that
+      // preview there, and stop the list rearranging itself underneath.
+      const droppable = droppableTab(state.id);
+      const isOverBoard = droppable !== null && isOverCanvas(moveEvent.clientX, moveEvent.clientY);
+      announceCanvasDrag(isOverBoard ? canvasDetail(droppable, moveEvent) : null);
+      if (isOverBoard) {
+        hoverTargetRef.current = null;
+        setHoverTarget(null);
+        return;
+      }
+
       const nextTarget = resolveHoverTarget(moveEvent.clientY, state.id, draggedParentPath);
       if (sameTarget(hoverTargetRef.current, nextTarget)) return;
       hoverTargetRef.current = nextTarget;
       setHoverTarget(nextTarget);
     }
 
-    function handleMouseUp() {
+    function handleMouseUp(upEvent: MouseEvent) {
+      announceCanvasDrag(null);
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
 
@@ -600,7 +629,14 @@ export function TabBar({
 
       if (state?.moved) {
         suppressClickRef.current = true;
-        if (target && target.id !== state.id) onReorder?.(state.id, target.id, target.placeAfter);
+        const droppable = droppableTab(state.id);
+        if (droppable && isOverCanvas(upEvent.clientX, upEvent.clientY)) {
+          // Released over the canvas: drop the tab's note/PDF there as a card
+          // (CanvasView listens) instead of reordering the list.
+          announceCanvasDrop(canvasDetail(droppable, upEvent));
+        } else if (target && target.id !== state.id) {
+          onReorder?.(state.id, target.id, target.placeAfter);
+        }
       }
     }
 
@@ -666,7 +702,7 @@ export function TabBar({
         }`}
       >
         <div className="flex items-start gap-2">
-          <TabIcon size={15} className={`mt-[3px] shrink-0 ${isHome ? 'text-yellow-400' : tab.kind === 'pdf' ? 'text-accent-link-broken' : ''}`} />
+          <TabIcon size={15} className={`mt-0 shrink-0 ${isHome ? 'text-yellow-400' : tab.kind === 'pdf' ? 'text-accent-link-broken' : ''}`} />
           <span className="min-w-0 flex-1 break-words font-medium" style={TITLE_CLAMP_STYLE}>
             {tab.label}
           </span>

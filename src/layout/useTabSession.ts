@@ -128,6 +128,7 @@ export function useTabSession({
           active: active && tabs.includes(active) ? active : HOME_TAB_ID,
           color: w.color ?? null,
           flagged: (w.flagged ?? []).map(toAbsolute).filter((path) => tabs.includes(path)),
+          scratchpad: w.scratchpad ?? '',
         };
       });
       const wanted = saved.current;
@@ -155,6 +156,7 @@ export function useTabSession({
         active: w.active === HOME_TAB_ID ? null : toRelative(w.active),
         color: w.color,
         flagged: w.flagged.map(toRelative),
+        scratchpad: w.scratchpad,
       })),
       current: currentName,
     };
