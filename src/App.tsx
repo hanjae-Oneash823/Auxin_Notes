@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { revealItemInDir } from '@tauri-apps/plugin-opener';
 import { Editor } from './editor/Editor';
 import { VaultPicker } from './app/firstRun/VaultPicker';
@@ -15,9 +16,12 @@ import { useSettingsStore } from './app/settings/settingsStore';
 import { AppShell } from './layout/AppShell';
 import { SidebarNav } from './layout/SidebarNav';
 import { RightPanelHeader } from './layout/RightPanel';
-import { usePanelLayoutStore } from './layout/panelLayoutStore';
-import { FilePlus, FolderPlus, Stack } from '@phosphor-icons/react';
+import { RIGHT_PANEL_LAYERS, usePanelLayoutStore } from './layout/panelLayoutStore';
+import { AnimatePresence, motion } from 'framer-motion';
+import { FilePdf, FilePlus, FolderPlus, Stack, X } from '@phosphor-icons/react';
+import { animateCloseAll } from './layout/tabCloseAnimation';
 import { animateFolderDelete } from './layout/folderDeleteAnimation';
+import { flyCardToTab } from './layout/flyToTab';
 import { panTabContent, type PanDirection } from './layout/panTransition';
 import { PacketIconButton, SidebarPacket } from './layout/SidebarPacket';
 import { Sidebar } from './layout/Sidebar';
@@ -27,6 +31,7 @@ import { buildTabGroupTree, flattenTabGroups } from './layout/tabGroups';
 import { WindowChrome } from './layout/WindowChrome';
 import { ConfirmDialog } from './layout/ConfirmDialog';
 import { useWorkspaces } from './layout/useWorkspaces';
+import { CloseAllTabsButton } from './layout/CloseAllTabsButton';
 import { WorkspaceSwitcher } from './layout/WorkspaceSwitcher';
 import { titleFromPath } from './vault/noteTitle';
 import { HomeDashboard } from './notes/HomeDashboard';
@@ -34,8 +39,13 @@ import { HubView } from './notes/HubView';
 import { formatFolder } from './notes/noteStats';
 import { useOpenNoteStats } from './notes/useOpenNoteStats';
 import { CanvasView } from './canvas/CanvasView';
+import { PdfView } from './pdf/PdfView';
+import { ImportedPdfsDock } from './pdf/ImportedPdfsDock';
+import { createPdfNote, deletePdf, listPdfSummaries, movePdfPair, renamePdfPair } from './pdf/pdfEngine';
+import { isPdfPath, mergePdfNotes, notePathForPdf, pdfPathForNote } from './pdf/pdfFiles';
 import { CANVAS_EXTENSION } from './vault/canvasTypes';
 import { FolderTree } from './notes/FolderTree';
+import { BubbleNavigatorView } from './notes/BubbleNavigatorView';
 import { TagBrowser } from './notes/TagBrowser';
 import { BacklinksPanel } from './notes/BacklinksPanel';
 import { TocPanel } from './notes/TocPanel';
@@ -44,6 +54,9 @@ import { SearchPanel } from './search/SearchPanel';
 import { GraphPanel } from './graph/GraphPanel';
 import { Graph2DPanel } from './graph/Graph2DPanel';
 import { TerminalLauncher } from './terminal/TerminalLauncher';
+import { AgentStopConfirm } from './terminal/terminalAgent';
+import { agentTargetFromPath } from './terminal/terminalAgentPrompt';
+import { TerminalPane } from './terminal/TerminalPane';
 import { useStickyStore } from './sticky/stickyStore';
 import { useGlobalCaptureShortcut } from './sticky/useGlobalCaptureShortcut';
 import { StickyBoard } from './sticky/StickyBoard';
@@ -78,6 +91,10 @@ interface VaultReadyProps {
   setActiveTabId: (id: string) => void;
   openAbsolutePath: (absolutePath: string) => void;
   closeTab: (id: string) => void;
+  closeAllTabs: () => void;
+  toggleFlag: (tabId: string) => void;
+  moveTabToWorkspace: (tabId: string, workspaceName: string) => void;
+  duplicateTabToWorkspace: (tabId: string, workspaceName: string) => void;
   renameTabId: (oldId: string, newId: string) => void;
   remapTabsUnderFolder: (oldAbsolutePrefix: string, newAbsolutePrefix: string) => void;
   removeTabsEverywhere: (shouldRemove: (tabId: string) => boolean) => void;
@@ -85,6 +102,8 @@ interface VaultReadyProps {
   workspaceNames: string[];
   currentWorkspace: string;
   stepWorkspace: (step: 1 | -1) => string | null;
+  workspaceColors: Record<string, string | null>;
+  setWorkspaceColor: (name: string, color: string | null) => void;
   switchWorkspace: (name: string) => void;
   renameWorkspace: (name: string, newName: string) => string | null;
   createWorkspace: (name: string) => string | null;
@@ -105,6 +124,10 @@ function VaultReady({
   setActiveTabId,
   openAbsolutePath,
   closeTab,
+  closeAllTabs,
+  toggleFlag,
+  moveTabToWorkspace,
+  duplicateTabToWorkspace,
   renameTabId,
   remapTabsUnderFolder,
   removeTabsEverywhere,
@@ -112,6 +135,8 @@ function VaultReady({
   workspaceNames,
   currentWorkspace,
   stepWorkspace,
+  workspaceColors,
+  setWorkspaceColor,
   switchWorkspace,
   renameWorkspace,
   createWorkspace: createWorkspaceNamed,
@@ -124,6 +149,8 @@ function VaultReady({
   // displayed `notes` list.
   const [allNotes, setAllNotes] = useState<NoteSummary[] | null>(null);
   const [notes, setNotes] = useState<NoteSummary[] | null>(null);
+  // PDFs are listed from disk, not the index (see pdf/pdfFiles.ts).
+  const [pdfNotes, setPdfNotes] = useState<NoteSummary[]>([]);
   const [folderPaths, setFolderPaths] = useState<string[]>([]);
   const [unresolvedCount, setUnresolvedCount] = useState(0);
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
@@ -141,6 +168,7 @@ function VaultReady({
   const [isGraphMode, setIsGraphMode] = useState(false);
   const [isGraph2DMode, setIsGraph2DMode] = useState(false);
   const [isStickyMode, setIsStickyMode] = useState(false);
+  const [isBubbleMode, setIsBubbleMode] = useState(false);
   const loadStickyNotes = useStickyStore((state) => state.load);
   useGlobalCaptureShortcut();
   useGlobalFileSearcherShortcut();
@@ -158,7 +186,31 @@ function VaultReady({
   // Whether the pinned-notes dock is open under the left nav — resets on
   // every app launch, same as reading mode above.
   const [isPinnedOpen, setIsPinnedOpen] = useState(false);
+  // Same idea for the imported-PDFs list under the left nav.
+  const [isPdfsOpen, setIsPdfsOpen] = useState(false);
+  useEffect(() => {
+    if (!isPdfsOpen) return;
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') setIsPdfsOpen(false);
+    }
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isPdfsOpen]);
   const activeRightLayer = usePanelLayoutStore((state) => state.activeRightLayer);
+  // Slide in from the side the picked tab is on (right-panel tabs read left to right).
+  const previousLayerRef = useRef(activeRightLayer);
+  const layerDirection =
+    Math.sign(RIGHT_PANEL_LAYERS.indexOf(activeRightLayer) - RIGHT_PANEL_LAYERS.indexOf(previousLayerRef.current)) || 1;
+  useEffect(() => {
+    previousLayerRef.current = activeRightLayer;
+  }, [activeRightLayer]);
+  const layerEnterStyle = { '--layer-from': `${layerDirection * 14}px` } as CSSProperties;
+  // The terminal spawns on the first visit to its layer, then stays mounted
+  // (hidden) so its shell and scrollback survive switching layers.
+  const [hasOpenedTerminal, setHasOpenedTerminal] = useState(false);
+  useEffect(() => {
+    if (activeRightLayer === 'terminal') setHasOpenedTerminal(true);
+  }, [activeRightLayer]);
   const setRightLayer = usePanelLayoutStore((state) => state.setRightLayer);
   const isRightSidebarOpen = usePanelLayoutStore((state) => state.isRightSidebarOpen);
   const toggleRightSidebar = usePanelLayoutStore((state) => state.toggleSidebar);
@@ -173,12 +225,14 @@ function VaultReady({
   }
 
   async function refreshNotes() {
-    const [all, unresolved, folders] = await Promise.all([
+    const [all, unresolved, folders, pdfs] = await Promise.all([
       fetchNotes(vaultRoot, null),
       fetchUnresolvedCount(vaultRoot),
       fetchFolders(vaultRoot),
+      listPdfSummaries(vaultRoot),
     ]);
     setAllNotes(all);
+    setPdfNotes(pdfs);
     setNotes(selectedTag ? await fetchNotes(vaultRoot, selectedTag) : all);
     setUnresolvedCount(unresolved);
     setFolderPaths(folders);
@@ -208,11 +262,45 @@ function VaultReady({
     setIsGraphMode(false);
     setIsGraph2DMode(false);
     setIsStickyMode(false);
+    setIsBubbleMode(false);
     setActiveTabId(tabId);
   }
 
   function openRelativePath(relativePath: string) {
-    openAbsolutePath(`${vaultRoot}/${relativePath}`);
+    // A note fused to a PDF (search, backlinks, wikilinks all land here by
+    // the note's path) opens as that PDF's split view instead.
+    const pdfPath = relativePath.endsWith('.md') ? pdfPathForNote(relativePath) : null;
+    const target = pdfPath && pdfNotes.some((pdf) => pdf.path === pdfPath) ? pdfPath : relativePath;
+    setIsBubbleMode(false);
+    openAbsolutePath(`${vaultRoot}/${target}`);
+  }
+
+  /** File-picker import: copies each chosen PDF into `folderPath` ('' = vault
+   *  root) and opens the last one. Nothing is parsed or indexed. */
+  async function importPdfs(folderPath: string) {
+    try {
+      const picked = await openDialog({ multiple: true, filters: [{ name: 'PDF', extensions: ['pdf'] }] });
+      if (!picked) return;
+      const destDir = folderPath ? `${vaultRoot}/${folderPath}` : vaultRoot;
+      let lastImported: string | null = null;
+      for (const sourcePath of Array.isArray(picked) ? picked : [picked]) {
+        lastImported = await invoke<string>('import_file', { destDir, sourcePath });
+      }
+      await refreshNotes();
+      if (lastImported) openAbsolutePath(lastImported);
+    } catch (error: unknown) {
+      setRenameStatus({ message: error instanceof Error ? error.message : String(error), isError: true });
+    }
+  }
+
+  /** "+ add note" on a note-less PDF — the split view appears once refreshed. */
+  async function addNoteToPdf(pdf: NoteSummary, content?: string) {
+    try {
+      await createPdfNote(vaultRoot, pdf.path, content);
+      await refreshNotes();
+    } catch (error: unknown) {
+      setRenameStatus({ message: error instanceof Error ? error.message : String(error), isError: true });
+    }
   }
 
   /** `folderPath` targets a specific folder (e.g. from its context menu's
@@ -303,9 +391,17 @@ function VaultReady({
    *  open) and marks it deleted in the index the same way syncEngine does
    *  when it notices a file vanish from disk on its own. Called only after
    *  `pendingDelete`'s confirmation card has been accepted. */
-  async function deleteNote(note: NoteSummary) {
+  async function deleteNote(note: NoteSummary, keepNote = false) {
     const absolutePath = `${vaultRoot}/${note.path}`;
     try {
+      if (note.isPdf) {
+        await deletePdf(vaultRoot, note, keepNote);
+        // A kept note stops being fused — the open PDF tab turns into its note's tab.
+        if (keepNote) renameTabId(absolutePath, `${vaultRoot}/${notePathForPdf(note.path)}`);
+        else removeTabsEverywhere((id) => id === absolutePath);
+        await refreshNotes();
+        return;
+      }
       await invoke('delete_note', { path: absolutePath });
       await syncRemoved(vaultRoot, absolutePath);
       void logUsageEvent(vaultRoot, { type: 'delete', path: note.path, title: note.title }).catch(
@@ -349,6 +445,13 @@ function VaultReady({
     if (!title || title === note.title) return;
 
     try {
+      if (note.isPdf) {
+        const newPdfPath = await renamePdfPair(vaultRoot, note, title);
+        renameTabId(`${vaultRoot}/${note.path}`, `${vaultRoot}/${newPdfPath}`);
+        setRenameStatus({ message: `renamed "${note.title}" → "${title}"`, isError: false });
+        await refreshNotes();
+        return;
+      }
       const result = await renameNote(vaultRoot, note.id, title);
       const message =
         result.totalImpacted === 0
@@ -386,7 +489,9 @@ function VaultReady({
    *  (unlike a folder move) at most one open tab ever needs remapping. */
   async function handleMoveNote(note: NoteSummary, targetFolderPath: string) {
     try {
-      const newPath = await moveNoteToFolder(vaultRoot, note, targetFolderPath);
+      const newPath = note.isPdf
+        ? await movePdfPair(vaultRoot, note, targetFolderPath)
+        : await moveNoteToFolder(vaultRoot, note, targetFolderPath);
       if (newPath === note.path) return;
       renameTabId(`${vaultRoot}/${note.path}`, `${vaultRoot}/${newPath}`);
       await refreshNotes();
@@ -446,8 +551,20 @@ function VaultReady({
     }
   }
 
+  const pendingDeleteFusedNote =
+    pendingDelete?.kind === 'note' && pendingDelete.note.isPdf
+      ? (allNotes ?? []).some((note) => note.path === notePathForPdf(pendingDelete.note.path))
+      : false;
+
   const activeRelativePath = activePath ? toRelativePath(vaultRoot, activePath) : null;
-  const activeNote = allNotes?.find((note) => note.path === activeRelativePath) ?? null;
+  const activePdf = activeRelativePath && isPdfPath(activeRelativePath)
+    ? pdfNotes.find((pdf) => pdf.path === activeRelativePath) ?? null
+    : null;
+  const activeNote = activePdf ?? allNotes?.find((note) => note.path === activeRelativePath) ?? null;
+  // The indexed note fused to the active PDF (null while the PDF has none).
+  const fusedNote = activePdf ? allNotes?.find((note) => note.path === notePathForPdf(activePdf.path)) ?? null : null;
+  const treeNotes = mergePdfNotes(notes ?? [], pdfNotes, selectedTag !== null);
+  const treeAllNotes = mergePdfNotes(allNotes ?? [], pdfNotes, false);
 
   // Tab cards show the note's folder, age, length and image count. Word/image
   // counts come from each open note's file (see useOpenNoteStats); canvases
@@ -457,7 +574,7 @@ function VaultReady({
   const cardTabItems: TabItem[] = tabItems.map((tab) => {
     if (tab.kind === 'home') return tab;
     const relativePath = toRelativePath(vaultRoot, tab.id);
-    const note = allNotes?.find((candidate) => candidate.path === relativePath);
+    const note = treeAllNotes.find((candidate) => candidate.path === relativePath);
     const slashIndex = relativePath.lastIndexOf('/');
     return {
       ...tab,
@@ -511,6 +628,7 @@ function VaultReady({
         setIsGraphMode(false);
         setIsGraph2DMode(false);
         setIsStickyMode(false);
+        setIsBubbleMode(false);
         stepWorkspace(event.code === 'ArrowRight' ? 1 : -1);
         return;
       }
@@ -545,33 +663,58 @@ function VaultReady({
               if (!error) setIsStickyMode(false);
               return error;
             }}
+            colors={workspaceColors}
+            onColor={setWorkspaceColor}
             onRename={renameWorkspace}
             onDelete={deleteWorkspace}
           />
           <SidebarNav
             isPinnedOpen={isPinnedOpen}
             onTogglePinned={() => setIsPinnedOpen((isOpen) => !isOpen)}
+            isPdfsOpen={isPdfsOpen}
+            onTogglePdfs={() => setIsPdfsOpen((isOpen) => !isOpen)}
+            pdfCount={pdfNotes.length}
             isStickyMode={isStickyMode}
             onToggleStickyMode={() => {
               setIsStickyMode((mode) => !mode);
+              setIsBubbleMode(false);
+              setIsGraphMode(false);
+              setIsGraph2DMode(false);
+            }}
+            isBubbleMode={isBubbleMode}
+            onToggleBubbleMode={() => {
+              setIsBubbleMode((mode) => !mode);
+              setIsStickyMode(false);
               setIsGraphMode(false);
               setIsGraph2DMode(false);
             }}
           />
-          <SidebarPacket title="Tabs" isFill>
+          {/* Positioned so the imported-PDFs popup can overlay exactly the tabs list. */}
+          <div className="relative flex min-h-0 flex-1 flex-col">
+          <SidebarPacket
+            title="Tabs"
+            isFill
+            actions={<CloseAllTabsButton isDisabled={cardTabItems.length <= 1} onConfirm={() => void animateCloseAll().then(closeAllTabs)} />}
+          >
             <TabBar
               tabs={cardTabItems}
               activeTabId={activeTabId}
               vaultRoot={vaultRoot}
               onSelect={selectTab}
               onClose={closeTab}
+              onToggleFlag={toggleFlag}
+              onMoveToWorkspace={moveTabToWorkspace}
+              onDuplicateToWorkspace={duplicateTabToWorkspace}
+              onRevealInFinder={(tabId) => void revealItemInDir(tabId)}
+              otherWorkspaces={workspaceNames.filter((name) => name !== currentWorkspace)}
               onReorder={reorderTabs}
               onNewNote={(path) => void createNote(path)}
               onNewCanvas={(path) => void createCanvas(path)}
+              onImportPdf={(path) => void importPdfs(path)}
               onNewSubfolder={(path) => void handleCreateFolderAt(path)}
               onRenameFolder={(folderPath, newName) => void handleRenameFolder(folderPath, newName)}
               folderPaths={folderPaths}
-              allNotes={allNotes ?? []}
+              allNotes={treeAllNotes}
               onOpenNote={openRelativePath}
               // Run the scroll container out to the panel's edge (packet's
               // px-1.5 + panel's px-2 = 14px) so its scrollbar sits flush; the
@@ -580,6 +723,46 @@ function VaultReady({
               className="sidebar-scroll -mr-3.5 min-h-0 flex-1 pr-2.5"
             />
           </SidebarPacket>
+          <AnimatePresence>
+          {isPdfsOpen && (
+            <motion.div
+              key="imported-pdfs"
+              // Same open/close timing as ContextMenu.tsx: eases out in, a touch quicker out.
+              initial={{ opacity: 0, y: -8, scale: 0.985 }}
+              animate={{ opacity: 1, y: 0, scale: 1, transition: { duration: 0.16, ease: [0.22, 1, 0.36, 1] } }}
+              exit={{ opacity: 0, y: -6, scale: 0.985, transition: { duration: 0.1, ease: 'easeIn' } }}
+              style={{ transformOrigin: 'top center' }}
+              className="absolute inset-0 z-20 flex flex-col rounded-panel bg-bg-panel shadow-[var(--shadow-float)]"
+            >
+              <SidebarPacket
+                title="Imported PDFs"
+                isFill
+                actions={
+                  <>
+                    <PacketIconButton title="import pdf" onClick={() => void importPdfs('')}>
+                      <FilePdf size={15} />
+                    </PacketIconButton>
+                    <PacketIconButton title="close" onClick={() => setIsPdfsOpen(false)}>
+                      <X size={14} />
+                    </PacketIconButton>
+                  </>
+                }
+              >
+                <ImportedPdfsDock
+                  pdfs={pdfNotes}
+                  activePath={activeRelativePath}
+                  onSelect={(path, source) => {
+                    // Fly the card into its tab, captured before the popup starts fading.
+                    if (source) flyCardToTab(source, `${vaultRoot}/${path}`);
+                    setIsPdfsOpen(false);
+                    openRelativePath(path);
+                  }}
+                />
+              </SidebarPacket>
+            </motion.div>
+          )}
+          </AnimatePresence>
+          </div>
           {isPinnedOpen && (
             <SidebarPacket title="Pinned notes" isFill>
               <PinnedDock />
@@ -590,6 +773,10 @@ function VaultReady({
       inspector={
         <Sidebar side="right" onResizeEnd={(px) => void setSidebarWidthRight(px)}>
           <RightPanelHeader />
+          {/* Keyed by layer: switching remounts this wrapper, replaying the slide-in
+              from the side of the tab that was picked (see .layer-enter). */}
+          {activeRightLayer !== 'terminal' && (
+            <div key={activeRightLayer} className="layer-enter flex min-h-0 flex-1 flex-col" style={layerEnterStyle}>
           {activeRightLayer === 'files' && (
             <SidebarPacket
               title="Vault"
@@ -601,6 +788,9 @@ function VaultReady({
                   </PacketIconButton>
                   <PacketIconButton title="new canvas" onClick={() => void createCanvas()}>
                     <Stack size={15} />
+                  </PacketIconButton>
+                  <PacketIconButton title="import pdf" onClick={() => void importPdfs('')}>
+                    <FilePdf size={15} />
                   </PacketIconButton>
                   <PacketIconButton
                     title="new folder"
@@ -631,7 +821,7 @@ function VaultReady({
               )}
               <FolderTree
                 vaultRoot={vaultRoot}
-                notes={notes ?? []}
+                notes={treeNotes}
                 folderPaths={folderPaths}
                 activePath={activeRelativePath}
                 renamingNoteId={renamingId}
@@ -651,6 +841,7 @@ function VaultReady({
                 onNewNoteInFolder={(folderPath) => void createNote(folderPath)}
                 onNewHubInFolder={(folderPath) => void createHub(folderPath)}
                 onNewCanvasInFolder={(folderPath) => void createCanvas(folderPath)}
+                onImportPdfInFolder={(folderPath) => void importPdfs(folderPath)}
                 onNewFolderAtRoot={() => {
                   setIsCreatingFolder(true);
                   setNewFolderName('');
@@ -667,7 +858,7 @@ function VaultReady({
           {activeRightLayer === 'contents' && <TocPanel activePath={activePath} />}
           {activeRightLayer === 'links' && (
             <>
-              <BacklinksPanel vaultRoot={vaultRoot} noteId={activeNote?.id ?? null} onSelect={openRelativePath} />
+              <BacklinksPanel vaultRoot={vaultRoot} noteId={(activePdf ? fusedNote : activeNote)?.id ?? null} onSelect={openRelativePath} />
               <UnresolvedLinksPanel vaultRoot={vaultRoot} onSelect={openRelativePath} onChanged={refreshNotes} />
               {/* Tags take the leftover height, but never shrink below a usable list
                   when the two link panels above are long. */}
@@ -678,12 +869,37 @@ function VaultReady({
               </div>
             </>
           )}
+            </div>
+          )}
+          {(hasOpenedTerminal || activeRightLayer === 'terminal') && (
+            // Hidden↔shown restarts the CSS animation, so the terminal slides in too.
+            <div
+              className={activeRightLayer === 'terminal' ? 'layer-enter flex min-h-0 flex-1 flex-col' : 'hidden'}
+              style={layerEnterStyle}
+            >
+              <TerminalPane vaultRoot={vaultRoot} isActive={activeRightLayer === 'terminal'} />
+            </div>
+          )}
           {pendingDelete && (
             <ConfirmDialog
               message={
-                pendingDelete.kind === 'note'
+                pendingDelete.kind === 'note' && pendingDeleteFusedNote
+                  ? `Delete the PDF "${pendingDelete.note.title}"? Keep its note as a standalone note?`
+                  : pendingDelete.kind === 'note'
                   ? `Delete "${pendingDelete.note.title}"? This can't be undone.`
                   : `Delete "${pendingDelete.path.split('/').pop()}" and everything inside it? This can't be undone.`
+              }
+              confirmLabel={pendingDeleteFusedNote ? 'delete both' : 'delete'}
+              alternate={
+                pendingDelete.kind === 'note' && pendingDeleteFusedNote
+                  ? {
+                      label: 'keep note',
+                      onSelect: () => {
+                        void deleteNote(pendingDelete.note, true);
+                        setPendingDelete(null);
+                      },
+                    }
+                  : undefined
               }
               onCancel={() => setPendingDelete(null)}
               onConfirm={() => {
@@ -735,6 +951,34 @@ function VaultReady({
             />
           ) : isStickyMode ? (
             <StickyBoard />
+          ) : isBubbleMode ? (
+            <BubbleNavigatorView
+              notes={treeAllNotes}
+              folderPaths={folderPaths}
+              onSelectNote={(path, source) => {
+                // Fly the bubble into its tab before the view switches away.
+                flyCardToTab(source, `${vaultRoot}/${path}`);
+                openRelativePath(path);
+              }}
+              onNewNote={(folderPath) => void createNote(folderPath || undefined)}
+              onNewCanvas={(folderPath) => void createCanvas(folderPath || undefined)}
+              onImportPdf={(folderPath) => void importPdfs(folderPath)}
+              onCreateFolder={(relativePath) => void handleCreateFolderAt(relativePath)}
+              onRevealInFinder={(folderPath) => void revealFolder(folderPath)}
+              onRenameFolder={(folderPath, newName) => void handleRenameFolder(folderPath, newName)}
+              onMoveNote={(note, targetFolderPath) => void handleMoveNote(note, targetFolderPath)}
+              onMoveFolder={(folderPath, targetParentPath) => void handleMoveFolder(folderPath, targetParentPath)}
+            />
+          ) : activePath && isPdfPath(activePath) ? (
+            <PdfView
+              pdfPath={activePath}
+              hasNote={fusedNote !== null}
+              vaultRoot={vaultRoot}
+              onNavigate={openRelativePath}
+              onRenameTitle={renameActiveNote}
+              onAddNote={(content) => activePdf && void addNoteToPdf(activePdf, content)}
+              readOnly={isReadingMode}
+            />
           ) : activePath && activeNote?.isCanvas ? (
             <CanvasView key={activePath} path={activePath} vaultRoot={vaultRoot} onNavigate={openRelativePath} onSynced={refreshNotes} />
           ) : activePath && activeNote?.isHub && forceEditPath !== activePath ? (
@@ -779,9 +1023,11 @@ function VaultReady({
               onSelectTag={openTagFromDashboard}
               onNewNote={() => void createNote()}
               onNewCanvas={() => void createCanvas()}
+              onImportPdf={() => void importPdfs('')}
               onOpenStickyBoard={() => setIsStickyMode(true)}
               workspaceNames={workspaceNames}
               currentWorkspace={currentWorkspace}
+              workspaceColors={workspaceColors}
               onSwitchWorkspace={switchWorkspace}
             />
           )}
@@ -824,8 +1070,9 @@ function App() {
   const tabItems: TabItem[] = tabs.map((id) => ({
     id,
     label: id === HOME_TAB_ID ? 'Home' : titleFromPath(id),
-    kind: id === HOME_TAB_ID ? 'home' : id.endsWith(CANVAS_EXTENSION) ? 'canvas' : 'note',
+    kind: id === HOME_TAB_ID ? 'home' : id.endsWith(CANVAS_EXTENSION) ? 'canvas' : isPdfPath(id) ? 'pdf' : 'note',
     closable: id !== HOME_TAB_ID,
+    isFlagged: workspaces.flaggedTabs.includes(id),
   }));
 
   return (
@@ -850,6 +1097,10 @@ function App() {
             setActiveTabId={workspaces.setActiveTabId}
             openAbsolutePath={workspaces.openAbsolutePath}
             closeTab={workspaces.closeTab}
+            closeAllTabs={workspaces.closeAllTabs}
+            toggleFlag={workspaces.toggleFlag}
+            moveTabToWorkspace={workspaces.moveTabToWorkspace}
+            duplicateTabToWorkspace={workspaces.duplicateTabToWorkspace}
             renameTabId={workspaces.renameTabId}
             remapTabsUnderFolder={workspaces.remapTabsUnderFolder}
             removeTabsEverywhere={workspaces.removeTabsEverywhere}
@@ -857,6 +1108,8 @@ function App() {
             workspaceNames={workspaces.workspaceNames}
             currentWorkspace={workspaces.currentWorkspace}
             stepWorkspace={workspaces.stepWorkspace}
+            workspaceColors={workspaces.workspaceColors}
+            setWorkspaceColor={workspaces.setWorkspaceColor}
             switchWorkspace={workspaces.switchWorkspace}
             renameWorkspace={workspaces.renameWorkspace}
             createWorkspace={workspaces.createWorkspace}
@@ -864,7 +1117,12 @@ function App() {
           />
         )}
       </div>
-      <TerminalLauncher vaultRoot={vaultRoot ?? undefined} />
+      <TerminalLauncher
+        focusedTarget={
+          workspaces.activeTabId === HOME_TAB_ID ? null : agentTargetFromPath(workspaces.activeTabId, false)
+        }
+      />
+      <AgentStopConfirm />
     </div>
   );
 }
