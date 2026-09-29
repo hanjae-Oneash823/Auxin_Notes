@@ -28,15 +28,15 @@ A markdown note-taking app for a local vault of plain-text files. Built with Tau
 
 **Tabs and workspaces** — tabs grouped by folder, collapsible per group.
 
-![Tabs](docs/screenshots/tabs.png)
+<img src="docs/screenshots/tabs.png" alt="Tabs" width="420" />
 
 **Quick file search** — a floating popup for jumping to any note.
 
-![Quick file search](docs/screenshots/file-search.png)
+<img src="docs/screenshots/file-search.png" alt="Quick file search" width="420" />
 
 **Sticky capture** — a small always-on-top window for quick notes.
 
-![Sticky capture](docs/screenshots/sticky-capture.png)
+<img src="docs/screenshots/sticky-capture.png" alt="Sticky capture" width="420" />
 
 Canvas boards and the graph view are still being finished — screenshots to come once they're ready.
 
