@@ -28,3 +28,31 @@ export async function setCollapsedFolders(db: Database, paths: string[]): Promis
     [COLLAPSED_FOLDERS_KEY, JSON.stringify(paths)],
   );
 }
+
+const COLLAPSED_TAB_GROUPS_KEY = 'collapsed_tab_groups';
+
+/** Same shape as getCollapsedFolders, but for TabBar.tsx's per-folder tab
+ *  groups — kept as a separate key rather than sharing collapsed_folders,
+ *  since collapsing a folder in the vault-wide FolderTree and collapsing its
+ *  tab group in the open-tabs working-set view are different views serving
+ *  different purposes. */
+export async function getCollapsedTabGroups(db: Database): Promise<string[]> {
+  const rows = await db.select<{ value: string }[]>('SELECT value FROM meta WHERE key = ?', [
+    COLLAPSED_TAB_GROUPS_KEY,
+  ]);
+  if (rows.length === 0) return [];
+  try {
+    const parsed = JSON.parse(rows[0].value);
+    return Array.isArray(parsed) ? parsed.filter((path): path is string => typeof path === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function setCollapsedTabGroups(db: Database, paths: string[]): Promise<void> {
+  await db.execute(
+    `INSERT INTO meta (key, value) VALUES (?, ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+    [COLLAPSED_TAB_GROUPS_KEY, JSON.stringify(paths)],
+  );
+}

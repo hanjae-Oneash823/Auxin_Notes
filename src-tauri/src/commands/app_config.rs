@@ -1,7 +1,18 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fs;
 use std::io::Write;
 use tauri::{AppHandle, Manager};
+
+/// The tabs open in one vault (the pre-workspaces session). No longer
+/// written — workspaces live in the vault's database — but still read to
+/// migrate a vault's old tabs into its default workspace.
+/// Paths are absolute, in tab order (the pinned Home tab is not stored).
+#[derive(Serialize, Deserialize, Clone, Default)]
+pub struct TabSession {
+    pub tabs: Vec<String>,
+    pub active: Option<String>,
+}
 
 /// Lives outside the vault (in the OS app-config dir), not inside it — a vault
 /// can be moved, re-opened from a different config, or not exist yet at all.
@@ -33,6 +44,13 @@ pub struct AppConfig {
     pub right_sidebar_hidden: Option<bool>,
     #[serde(default)]
     pub right_panel_layer: Option<String>,
+    /// Open tabs per vault, keyed by vault path.
+    #[serde(default)]
+    pub tab_sessions: HashMap<String, TabSession>,
+    /// Shown in the Home dashboard's "welcome" greeting (HomeDashboard.tsx).
+    /// `None`/absent means no name set yet — the greeting hides itself.
+    #[serde(default)]
+    pub user_name: Option<String>,
 }
 
 fn config_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {

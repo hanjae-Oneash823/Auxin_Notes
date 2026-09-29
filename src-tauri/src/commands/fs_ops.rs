@@ -49,6 +49,13 @@ pub fn delete_note(path: String) -> Result<(), String> {
     fs::remove_file(&path).map_err(|e| e.to_string())
 }
 
+/// Keeps only the paths that still exist as files, in their original order —
+/// used to drop restored tabs whose note was deleted or moved while closed.
+#[tauri::command]
+pub fn existing_paths(paths: Vec<String>) -> Vec<String> {
+    paths.into_iter().filter(|p| Path::new(p).is_file()).collect()
+}
+
 #[tauri::command]
 pub fn ensure_dir(path: String) -> Result<(), String> {
     fs::create_dir_all(&path).map_err(|e| e.to_string())

@@ -1,5 +1,14 @@
 import { invoke } from '@tauri-apps/api/core';
 
+/** Mirrors the Rust `TabSession`: one vault's open tabs (absolute paths, in
+ *  order, Home excluded) and which one was focused. Read only as the legacy
+ *  source for a vault's first workspace — workspaces now live in the vault's
+ *  database (db/queries/workspaces.ts). */
+export interface TabSession {
+  tabs: string[];
+  active: string | null;
+}
+
 /** Mirrors the Rust `AppConfig` struct verbatim (snake_case — serde's
  *  default, not the camelCase Tauri applies to command arguments). */
 export interface AppConfig {
@@ -13,6 +22,10 @@ export interface AppConfig {
   left_sidebar_hidden: boolean | null;
   right_sidebar_hidden: boolean | null;
   right_panel_layer: string | null;
+  /** Keyed by vault path. */
+  tab_sessions: Record<string, TabSession>;
+  /** Shown in the Home dashboard's "welcome" greeting. `null` means unset. */
+  user_name: string | null;
 }
 
 export async function getAppConfig(): Promise<AppConfig> {
