@@ -5,7 +5,7 @@ const selectClassName =
   'border border-border bg-bg px-2 py-1 text-fg-prominent outline-none transition-colors duration-panel ease-panel focus:border-border-strong';
 
 export function SettingsPanel() {
-  const { fontFamilyId, fontSizePx, setFontFamily, setFontSize } = useSettingsStore();
+  const { fontFamilyId, fontSizePx, userName, setFontFamily, setFontSize, setUserName } = useSettingsStore();
 
   return (
     <div
@@ -15,6 +15,20 @@ export function SettingsPanel() {
       <span className="text-fg-faint tracking-label uppercase" style={{ fontSize: '0.68rem' }}>
         [settings]
       </span>
+
+      <label className="flex flex-col gap-1">
+        <span className="text-fg-muted">name</span>
+        <input
+          type="text"
+          defaultValue={userName}
+          onBlur={(event) => void setUserName(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') event.currentTarget.blur();
+          }}
+          placeholder="your name"
+          className={selectClassName}
+        />
+      </label>
 
       <label className="flex flex-col gap-1">
         <span className="text-fg-muted">font</span>

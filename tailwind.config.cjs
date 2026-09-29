@@ -1,5 +1,5 @@
 /** @type {import('tailwindcss').Config} */
-export default {
+module.exports = {
   content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
   darkMode: ['class'],
   theme: {
@@ -10,6 +10,9 @@ export default {
           chrome: 'var(--color-chrome-bg)',
           panel: 'var(--color-panel-bg)',
           packet: 'var(--color-packet-bg)',
+          'dashboard-card': 'var(--color-dashboard-card-bg)',
+          'packet-card': 'var(--color-packet-card-bg)',
+          'packet-active': 'var(--color-packet-active-bg)',
           footer: 'var(--color-footer-bg)',
         },
         fg: {
@@ -31,6 +34,7 @@ export default {
           tag: 'var(--accent-tag)',
           'status-dot': 'var(--accent-status-dot)',
           caret: 'var(--accent-caret)',
+          'neon-green': 'var(--accent-neon-green)',
         },
       },
       fontFamily: {
@@ -66,6 +70,7 @@ export default {
       sticky: 'var(--radius-sticky)',
       panel: 'var(--radius-panel)',
       row: 'var(--radius-row)',
+      tab: 'var(--radius-tab)',
     },
   },
   plugins: [],

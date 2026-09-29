@@ -2,10 +2,17 @@ import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type R
 
 const TOOLTIP_DELAY_MS = 150;
 const TOOLTIP_GAP_PX = 6;
+/** Room a label needs above its element; less than this and it flips below. */
+const TOOLTIP_MIN_ROOM_ABOVE_PX = 36;
+/** Distance from the window's right edge inside which a centered label could
+ *  overflow it, so the label right-aligns to the element instead. */
+const TOOLTIP_EDGE_MARGIN_PX = 80;
 
 interface TooltipAnchor {
   x: number;
   y: number;
+  isBelow: boolean;
+  isEndAligned: boolean;
 }
 
 interface HoverTooltip {
@@ -29,7 +36,7 @@ interface HoverTooltip {
  *  doesn't slide. Open eases out with a slight rise + scale; close is a
  *  touch quicker. */
 export function useHoverTooltip(label: string): HoverTooltip {
-  const [anchor, setAnchor] = useState<TooltipAnchor>({ x: 0, y: 0 });
+  const [anchor, setAnchor] = useState<TooltipAnchor>({ x: 0, y: 0, isBelow: false, isEndAligned: false });
   const [isOpen, setIsOpen] = useState(false);
   const timerRef = useRef<number | null>(null);
 
@@ -43,7 +50,14 @@ export function useHoverTooltip(label: string): HoverTooltip {
     const rect = event.currentTarget.getBoundingClientRect();
     clearTimer();
     timerRef.current = window.setTimeout(() => {
-      setAnchor({ x: rect.left + rect.width / 2, y: rect.top - TOOLTIP_GAP_PX });
+      const isBelow = rect.top < TOOLTIP_MIN_ROOM_ABOVE_PX;
+      const isEndAligned = window.innerWidth - rect.right < TOOLTIP_EDGE_MARGIN_PX;
+      setAnchor({
+        x: isEndAligned ? rect.right : rect.left + rect.width / 2,
+        y: isBelow ? rect.bottom + TOOLTIP_GAP_PX : rect.top - TOOLTIP_GAP_PX,
+        isBelow,
+        isEndAligned,
+      });
       setIsOpen(true);
     }, TOOLTIP_DELAY_MS);
   }
@@ -56,6 +70,11 @@ export function useHoverTooltip(label: string): HoverTooltip {
 
   useEffect(() => clearTimer, []);
 
+  const translateX = anchor.isEndAligned ? '-100%' : '-50%';
+  // Rests 4px toward its element while closed, then rises/settles into place.
+  const restingY = anchor.isBelow ? '0px' : '-100%';
+  const closedY = anchor.isBelow ? '-4px' : 'calc(-100% + 4px)';
+
   const tooltip = (
     <span
       role="tooltip"
@@ -64,8 +83,10 @@ export function useHoverTooltip(label: string): HoverTooltip {
       style={{
         left: anchor.x,
         top: anchor.y,
-        transformOrigin: 'bottom center',
-        transform: isOpen ? 'translate(-50%, -100%) scale(1)' : 'translate(-50%, calc(-100% + 4px)) scale(0.94)',
+        transformOrigin: `${anchor.isBelow ? 'top' : 'bottom'} ${anchor.isEndAligned ? 'right' : 'center'}`,
+        transform: isOpen
+          ? `translate(${translateX}, ${restingY}) scale(1)`
+          : `translate(${translateX}, ${closedY}) scale(0.94)`,
         opacity: isOpen ? 1 : 0,
         transition: isOpen
           ? 'opacity 140ms cubic-bezier(0.22, 1, 0.36, 1), transform 140ms cubic-bezier(0.22, 1, 0.36, 1)'

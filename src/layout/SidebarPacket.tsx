@@ -12,8 +12,9 @@ interface SidebarPacketProps {
   children: ReactNode;
 }
 
-/** A rounded card inside a sidebar — the unit the left/right panels are
- *  organised into. Sits one tone above the grey panel behind it. */
+/** A section inside a sidebar — the unit the left/right panels are
+ *  organised into. Square and the same tone as the panel (see the
+ *  `--color-packet-bg`/`--radius-panel` tokens); only tab cards are lifted. */
 export function SidebarPacket({ title, actions, isFill = false, children }: SidebarPacketProps) {
   return (
     <section
@@ -27,14 +28,7 @@ export function SidebarPacket({ title, actions, isFill = false, children }: Side
           {actions && <div className="flex items-center gap-0.5">{actions}</div>}
         </header>
       )}
-      {/* A fill packet hosts a scroll container (the file tree), so it drops
-          right padding: a parent's padding would inset the nested
-          scrollbar from the packet's edge instead of leaving it flush. */}
-      <div
-        className={`flex flex-col pb-1.5 pl-1.5 ${isFill ? 'min-h-0 flex-1 pr-0' : 'pr-1.5'} ${
-          title || actions ? '' : 'pt-1.5'
-        }`}
-      >
+      <div className={`flex flex-col px-1.5 pb-1.5 ${isFill ? 'min-h-0 flex-1' : ''} ${title || actions ? '' : 'pt-1.5'}`}>
         {children}
       </div>
     </section>
@@ -44,11 +38,13 @@ export function SidebarPacket({ title, actions, isFill = false, children }: Side
 interface PacketIconButtonProps {
   title: string;
   onClick: () => void;
+  /** Dimmed and unclickable. */
+  isDisabled?: boolean;
   children: ReactNode;
 }
 
 /** Header icon button with the shared custom tooltip (see `useHoverTooltip`). */
-export function PacketIconButton({ title, onClick, children }: PacketIconButtonProps) {
+export function PacketIconButton({ title, onClick, isDisabled = false, children }: PacketIconButtonProps) {
   const { hoverProps, hide, tooltip } = useHoverTooltip(title);
 
   return (
@@ -56,12 +52,13 @@ export function PacketIconButton({ title, onClick, children }: PacketIconButtonP
       <button
         type="button"
         aria-label={title}
+        disabled={isDisabled}
         onClick={() => {
           hide();
           onClick();
         }}
         {...hoverProps}
-        className="flex h-6 w-6 items-center justify-center rounded-row text-fg-faint transition-colors duration-panel ease-panel hover:bg-border-subtle hover:text-fg-prominent"
+        className="flex h-6 w-6 items-center justify-center rounded-row text-fg-faint transition-colors duration-panel ease-panel enabled:hover:bg-border-subtle enabled:hover:text-fg-prominent disabled:cursor-default disabled:opacity-30"
       >
         {children}
       </button>

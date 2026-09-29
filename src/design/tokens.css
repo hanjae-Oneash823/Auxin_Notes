@@ -22,9 +22,24 @@
      panels read as a step below the header/icon-rail, not equal to it. See
      `[data-theme="light"]` below. */
   --color-panel-bg: #1b1b1e;
-  /* Rounded card inside a sidebar (SidebarPacket.tsx) — one step lighter
-     than the grey panel it sits on, so grouped info reads as a packet. */
-  --color-packet-bg: #242427;
+  /* Section inside a sidebar (SidebarPacket.tsx) — deliberately the same as
+     the panel: sections aren't lifted, only the tab cards below are. */
+  --color-packet-bg: var(--color-panel-bg);
+  /* Tab cards (TabBar.tsx) — the only lifted surfaces in the sidebars: a
+     slightly lighter card per tab, and a lighter one still (with
+     `--border-strong` around it and `--shadow-float` beneath it) for the
+     active tab. */
+  --color-packet-card-bg: #252529;
+  --color-packet-active-bg: #38383e;
+  /* Home dashboard cards (HomeDashboard.tsx) — between `--color-bg` (the
+     content area itself, where Home sits) and `--color-panel-bg` (the
+     sidebars): a flat `--color-bg` fill made the cards vanish into the
+     content background, but `--color-panel-bg` made them read as
+     sidebar-colored panels floating in it. */
+  --color-dashboard-card-bg: #131315;
+  --border-card: rgba(255, 255, 255, 0.2);
+  /* Cursor-follow highlight on the active tab card (`.tab-glow`). */
+  --tab-glow: rgba(255, 255, 255, 0.09);
   /* Bottom status/footer strip — darkest chrome layer in dark mode (below
      `--color-chrome-bg`), dark grey in light mode (see `[data-theme="light"]`
      below). Its own text needs fixed light-on-dark tones for the same
@@ -56,6 +71,10 @@
   /* Scrollbar track — matches the sidebar's grey ground in both themes
      (the light-theme override of --color-panel-bg flows through). */
   --scrollbar-track: var(--color-panel-bg);
+  /* Thumb for the tab list and file tree (`.sidebar-scroll`) — a step darker
+     than the app-wide `--fg-faint` thumb. */
+  --scrollbar-thumb-sidebar: rgba(255, 255, 255, 0.2);
+  --scrollbar-thumb-sidebar-hover: var(--fg-faint);
   --border-default: rgba(255, 255, 255, 0.16);
   --border-strong: rgba(255, 255, 255, 0.35);
 
@@ -65,10 +84,37 @@
   --accent-link: #4dc8f2;
   --accent-link-broken: #c9776b;
   --accent-tag: #abe565;
+  /* FolderBubbleCluster.tsx's per-bubble palette — real distinct hex greens
+     rather than a CSS `filter: hue-rotate()` on --accent-tag, which turned
+     out not to render visibly distinct results in the app's WebView (the
+     animated-transform + filter combination on the same SVG element is a
+     known unreliable pairing). Hand-picked across roughly the same
+     hue/saturation/lightness family as --accent-tag so they read as a
+     cohesive cluster, not a rainbow. */
+  --bubble-green-1: #c9dd5f;
+  --bubble-green-2: #9fdb6e;
+  --bubble-green-3: #abe565;
+  --bubble-green-4: #7ed88f;
+  --bubble-green-5: #6fcf9e;
+  /* The "(root)" bubble (notes with no folder) is deliberately grey, not
+     another green — it's not a real folder, so it shouldn't read as one
+     more member of the folder palette. */
+  --bubble-grey: #8a8d91;
+  /* FolderBubbleCluster.tsx's note bubbles (folder drill-down) — a distinct
+     hue from the green folder palette above so a note reads as clearly not
+     a folder, not just a smaller one. */
+  --bubble-note-teal: #2dd4bf;
   --accent-status-dot: #6fae85;
   --accent-caret: #ffffff;
   --accent-warning: #e9bc61;
   --accent-info: #8b82be;
+  /* Deliberately full neon, unlike the accents above — a one-off pop for a
+     badge that should read as "alive", not another muted status color. Same
+     value in both themes so it stays neon rather than fading with the rest
+     of the palette. This is the pre-Zed-facelift --accent-tag value (see
+     8d2d530, which desaturated it to #abe565) — the neon green this app
+     used to have. */
+  --accent-neon-green: #b7ff5f;
 
   --space-chrome-xs: 4px;
   --space-chrome-sm: 8px;
@@ -126,11 +172,17 @@
   --width-rail: 3.25rem;
   --width-sidebar-left: 16rem;
   --width-sidebar-right: 16rem;
-  /* Max width of the centered content column (editor, hubs, home). Widens
-     while a sidebar is hidden — see `[data-left-hidden]` below.
+  /* Max width of the centered content column (editor, hubs). Widens while a
+     sidebar is hidden — see `[data-left-hidden]` below. Home has its own,
+     wider column — --width-dashboard-max, right below.
      The transition value must stay in sync with SIDEBAR_TOGGLE_MS/EASING in
      layout/panelLayoutStore.ts so the column grows with the slide. */
   --width-content-max: 760px;
+  /* Home's own column — a card-grid dashboard, not prose, so it isn't held
+     to --width-content-max's readable-line-length constraint. Same
+     escalation pattern (widens further while a sidebar is hidden, see
+     `[data-left-hidden]` below), just wider at every tier. */
+  --width-dashboard-max: 1200px;
   --transition-content-width: max-width 220ms cubic-bezier(0.32, 0.72, 0, 1);
 
   /* System law: no border-radius anywhere except circular status dots —
@@ -139,9 +191,11 @@
   --radius-none: 0px;
   --radius-full: 9999px;
   --radius-sticky: 6px;
-  /* Sidebar packets and their inner rows/buttons. */
-  --radius-panel: 10px;
-  --radius-row: 6px;
+  /* Sidebar sections and their rows/buttons/tooltips stay square (the
+     no-radius law above); the tab cards are the one rounded surface there. */
+  --radius-panel: 0px;
+  --radius-row: 0px;
+  --radius-tab: 10px;
 
   /* Sticky-note paper palette — fixed pastel/ink pairs, deliberately the
      same in both themes: real paper doesn't relabel itself dark mode.
@@ -190,9 +244,11 @@
 :root[data-left-hidden='true'],
 :root[data-right-hidden='true'] {
   --width-content-max: 960px;
+  --width-dashboard-max: 1400px;
 }
 :root[data-left-hidden='true'][data-right-hidden='true'] {
   --width-content-max: 1100px;
+  --width-dashboard-max: 1600px;
 }
 
 /* Explicit opt-in only (Settings → Theme) — not tied to
@@ -214,7 +270,15 @@
      toward `--color-bg` — a subtle step between pure-white content and the
      more saturated header/icon-rail tone, not a match for either. */
   --color-panel-bg: #ecebe8;
-  --color-packet-bg: #f7f6f4;
+  --color-packet-bg: var(--color-panel-bg);
+  --color-packet-card-bg: #f7f6f4;
+  --color-packet-active-bg: #ffffff;
+  /* Between `--color-bg` (#fff, lighter here) and `--color-panel-bg`
+     (#ecebe8, darker here) — light mode inverts which one is darker, but
+     the card fill's job is the same: sit strictly between the two. */
+  --color-dashboard-card-bg: #f6f5f3;
+  --border-card: rgba(20, 22, 26, 0.2);
+  --tab-glow: rgba(20, 22, 26, 0.06);
   /* Footer stays a dark strip in light mode too, but pure black reads too
      harsh against the rest of the light palette — dark grey instead. */
   --color-footer-bg: #dddbd6;
@@ -223,6 +287,8 @@
 
   --fg-faint: rgba(20, 22, 26, 0.35);
   --fg-muted: rgba(20, 22, 26, 0.62);
+  --scrollbar-thumb-sidebar: rgba(20, 22, 26, 0.5);
+  --scrollbar-thumb-sidebar-hover: var(--fg-muted);
   --fg-prominent: rgba(20, 22, 26, 0.85);
   --fg-full: #14161a;
 
@@ -236,6 +302,15 @@
   --accent-link: #2b80aa;
   --accent-link-broken: #b5564a;
   --accent-tag: #577a30;
+  /* Light-theme counterpart of the dark block's --bubble-green-* palette —
+     see that comment for why these exist instead of a CSS filter. */
+  --bubble-green-1: #6d7d2e;
+  --bubble-green-2: #4f7a3c;
+  --bubble-green-3: #577a30;
+  --bubble-green-4: #3f7a51;
+  --bubble-green-5: #397a63;
+  --bubble-grey: #8a8d91;
+  --bubble-note-teal: #0f766e;
   --accent-status-dot: #3f8562;
   --accent-caret: #14161a;
   --accent-warning: #977120;

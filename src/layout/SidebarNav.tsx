@@ -1,15 +1,13 @@
 import type { ReactNode } from 'react';
-import { Compass, Graph, Note, PushPin, ShareNetwork } from '@phosphor-icons/react';
+import { Compass, Note, PushPin } from '@phosphor-icons/react';
 import { openFileSearcherWindow } from '../fileSearcher/openFileSearcherWindow';
+import { useStickyStore } from '../sticky/stickyStore';
+import { CountBadge } from './CountBadge';
 import { SidebarPacket } from './SidebarPacket';
 
 interface SidebarNavProps {
   isPinnedOpen: boolean;
   onTogglePinned: () => void;
-  isGraphMode: boolean;
-  onToggleGraphMode: () => void;
-  isGraph2DMode: boolean;
-  onToggleGraph2DMode: () => void;
   isStickyMode: boolean;
   onToggleStickyMode: () => void;
 }
@@ -19,10 +17,12 @@ interface NavRowProps {
   title?: string;
   isActive: boolean;
   onClick: () => void;
+  /** A count shown in a small square at the row's right end. */
+  count?: number;
   children: ReactNode;
 }
 
-function NavRow({ label, title, isActive, onClick, children }: NavRowProps) {
+function NavRow({ label, title, isActive, onClick, count, children }: NavRowProps) {
   return (
     <button
       type="button"
@@ -35,24 +35,25 @@ function NavRow({ label, title, isActive, onClick, children }: NavRowProps) {
     >
       {children}
       <span className="truncate">{label}</span>
+      {count !== undefined && <CountBadge count={count} className="ml-auto" />}
     </button>
   );
 }
 
 /** Top packet of the left sidebar. Pinned notes toggles a dock below it; the
- *  rest toggle full-content-area modes (3D graph, 2D graph, sticky board) or
- *  open the visual file finder. Search and tags now live in the right
- *  panel's layers. */
+ *  rest toggle a full-content-area mode (sticky board) or open the visual
+ *  file finder. Search and tags now live in the right panel's layers. The
+ *  2D/3D graph views are hidden from here for now (still reachable as
+ *  content-area modes, just not from this nav — see isGraphMode/
+ *  isGraph2DMode in App.tsx), not removed outright. */
 export function SidebarNav({
   isPinnedOpen,
   onTogglePinned,
-  isGraphMode,
-  onToggleGraphMode,
-  isGraph2DMode,
-  onToggleGraph2DMode,
   isStickyMode,
   onToggleStickyMode,
 }: SidebarNavProps) {
+  const stickyCount = useStickyStore((state) => state.notes.length);
+
   return (
     <SidebarPacket>
       <NavRow label="Pinned notes" isActive={isPinnedOpen} onClick={onTogglePinned}>
@@ -66,13 +67,7 @@ export function SidebarNav({
       >
         <Compass size={16} />
       </NavRow>
-      <NavRow label="Graph 3D" isActive={isGraphMode} onClick={onToggleGraphMode}>
-        <Graph size={16} />
-      </NavRow>
-      <NavRow label="Graph 2D" isActive={isGraph2DMode} onClick={onToggleGraph2DMode}>
-        <ShareNetwork size={16} />
-      </NavRow>
-      <NavRow label="Sticky board" isActive={isStickyMode} onClick={onToggleStickyMode}>
+      <NavRow label="Sticky board" isActive={isStickyMode} onClick={onToggleStickyMode} count={stickyCount}>
         <Note size={16} />
       </NavRow>
     </SidebarPacket>

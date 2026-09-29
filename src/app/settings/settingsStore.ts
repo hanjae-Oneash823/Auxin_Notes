@@ -14,10 +14,13 @@ interface SettingsState {
   fontFamilyId: string;
   fontSizePx: number;
   themeId: string;
+  /** '' means unset — HomeDashboard hides its greeting in that case. */
+  userName: string;
   initFromConfig: () => Promise<void>;
   setFontFamily: (id: string) => Promise<void>;
   setFontSize: (px: number) => Promise<void>;
   setTheme: (id: string) => Promise<void>;
+  setUserName: (name: string) => Promise<void>;
   setSidebarWidthLeft: (widthPx: number) => Promise<void>;
   setSidebarWidthRight: (widthPx: number) => Promise<void>;
 }
@@ -50,15 +53,17 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   fontFamilyId: DEFAULT_FONT_FAMILY_ID,
   fontSizePx: DEFAULT_FONT_SIZE_PX,
   themeId: DEFAULT_THEME_ID,
+  userName: '',
 
   initFromConfig: async () => {
     const config = await getAppConfig();
     const fontFamilyId = config.font_family_id ?? DEFAULT_FONT_FAMILY_ID;
     const fontSizePx = config.font_size_px ?? DEFAULT_FONT_SIZE_PX;
     const themeId = config.theme_id ?? DEFAULT_THEME_ID;
+    const userName = config.user_name ?? '';
     applyFont(fontFamilyId, fontSizePx);
     applyTheme(themeId);
-    set({ fontFamilyId, fontSizePx, themeId });
+    set({ fontFamilyId, fontSizePx, themeId, userName });
 
     const root = document.documentElement.style;
     root.setProperty('--width-sidebar-left', `${config.sidebar_width_left ?? DEFAULT_SIDEBAR_WIDTH_PX}px`);
@@ -82,6 +87,12 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     applyTheme(id);
     set({ themeId: id });
     await patchAppConfig({ theme_id: id });
+  },
+
+  setUserName: async (name: string) => {
+    const trimmed = name.trim();
+    set({ userName: trimmed });
+    await patchAppConfig({ user_name: trimmed || null });
   },
 
   // No local state for either — nothing reactively displays the panel
