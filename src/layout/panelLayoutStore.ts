@@ -8,7 +8,8 @@ export const SIDEBAR_TOGGLE_EASING = 'cubic-bezier(0.32, 0.72, 0, 1)';
 // Small buffer past the transition so `isToggling` never clears mid-animation.
 const TOGGLE_SETTLE_BUFFER_MS = 40;
 
-export const RIGHT_PANEL_LAYERS = ['files', 'search', 'tags', 'contents', 'links'] as const;
+/** `links` shows backlinks, unresolved links and the tag browser together. */
+export const RIGHT_PANEL_LAYERS = ['files', 'search', 'contents', 'links'] as const;
 export type RightPanelLayer = (typeof RIGHT_PANEL_LAYERS)[number];
 const DEFAULT_RIGHT_LAYER: RightPanelLayer = 'files';
 
@@ -50,7 +51,7 @@ function persist(patch: Parameters<typeof patchAppConfig>[0]): void {
 
 /** Panel layout state: which sidebars are shown and which layer the right
  *  panel displays. Its own store (not App state) because the toggles live in
- *  `TitleBar` while the panels they control are rendered from `VaultReady` —
+ *  `WindowChrome` while the panels they control are rendered from `VaultReady` —
  *  siblings with no shared parent state between them. */
 export const usePanelLayoutStore = create<PanelLayoutState>((set, get) => ({
   isLeftSidebarOpen: true,
@@ -83,7 +84,9 @@ export const usePanelLayoutStore = create<PanelLayoutState>((set, get) => ({
     const config = await getAppConfig();
     const isLeftSidebarOpen = config.left_sidebar_hidden !== true;
     const isRightSidebarOpen = config.right_sidebar_hidden !== true;
-    const activeRightLayer = isRightPanelLayer(config.right_panel_layer) ? config.right_panel_layer : DEFAULT_RIGHT_LAYER;
+    // 'tags' was its own layer before it merged into 'links'; keep those users there.
+    const savedLayer = config.right_panel_layer === 'tags' ? 'links' : config.right_panel_layer;
+    const activeRightLayer = isRightPanelLayer(savedLayer) ? savedLayer : DEFAULT_RIGHT_LAYER;
     applyHiddenAttributes(isLeftSidebarOpen, isRightSidebarOpen);
     set({ isLeftSidebarOpen, isRightSidebarOpen, activeRightLayer });
   },

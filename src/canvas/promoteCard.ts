@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { getDb } from '../db/client';
+import { logUsageEvent } from '../db/usageEvents';
 import { dirname } from '../vault/noteTitle';
 import { syncFile } from '../vault/syncEngine';
 import type { CanvasDocument } from '../vault/canvasTypes';
@@ -71,6 +72,12 @@ export async function promoteCard(
 
   await invoke('write_note', { path: absolutePath, content: initialBody });
   await syncFile(vaultRoot, absolutePath);
+  void logUsageEvent(vaultRoot, {
+    type: 'create',
+    path: relativePath,
+    title,
+    detail: { kind: 'promoted-from-canvas' },
+  }).catch((error: unknown) => console.error('[usage] failed to log event', error));
 
   return {
     ...doc,
