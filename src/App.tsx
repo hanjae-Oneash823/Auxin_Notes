@@ -15,6 +15,7 @@ import { useVaultStore } from './vault/vaultStore';
 import { useSettingsStore } from './app/settings/settingsStore';
 import { AppShell } from './layout/AppShell';
 import { SidebarNav } from './layout/SidebarNav';
+import { WorkspaceScratchpad } from './layout/WorkspaceScratchpad';
 import { RightPanelHeader } from './layout/RightPanel';
 import { RIGHT_PANEL_LAYERS, usePanelLayoutStore } from './layout/panelLayoutStore';
 import { AnimatePresence, motion } from 'framer-motion';
@@ -60,6 +61,9 @@ import { TerminalPane } from './terminal/TerminalPane';
 import { useStickyStore } from './sticky/stickyStore';
 import { useGlobalCaptureShortcut } from './sticky/useGlobalCaptureShortcut';
 import { StickyBoard } from './sticky/StickyBoard';
+import { FileBrowser } from './notes/FileBrowser';
+import { isInTrash, isTrashFolder, TRASH_FOLDER } from './vault/trash';
+import type { FolderTreeProps } from './notes/FolderTree';
 import { PinnedDock } from './sticky/PinnedDock';
 import { useGlobalFileSearcherShortcut } from './fileSearcher/useGlobalFileSearcherShortcut';
 import { useFileSearcherNoteListener } from './fileSearcher/useFileSearcherNoteListener';
@@ -102,6 +106,8 @@ interface VaultReadyProps {
   workspaceNames: string[];
   currentWorkspace: string;
   stepWorkspace: (step: 1 | -1) => string | null;
+  scratchpad: string;
+  setScratchpad: (text: string) => void;
   workspaceColors: Record<string, string | null>;
   setWorkspaceColor: (name: string, color: string | null) => void;
   switchWorkspace: (name: string) => void;
@@ -135,6 +141,8 @@ function VaultReady({
   workspaceNames,
   currentWorkspace,
   stepWorkspace,
+  scratchpad,
+  setScratchpad,
   workspaceColors,
   setWorkspaceColor,
   switchWorkspace,
@@ -235,6 +243,12 @@ function VaultReady({
     setPdfNotes(pdfs);
     setNotes(selectedTag ? await fetchNotes(vaultRoot, selectedTag) : all);
     setUnresolvedCount(unresolved);
+    // The bin always exists, so it shows in the tree/browser even when empty.
+    if (!folders.includes(TRASH_FOLDER)) {
+      await invoke('ensure_dir', { path: `${vaultRoot}/${TRASH_FOLDER}` });
+      setFolderPaths([...folders, TRASH_FOLDER]);
+      return;
+    }
     setFolderPaths(folders);
   }
 
@@ -513,6 +527,35 @@ function VaultReady({
     }
   }
 
+  /** Delete = move into the bin (recoverable); only items already in the bin are removed for good. */
+  async function trashNote(note: NoteSummary) {
+    try {
+      if (note.isPdf) await movePdfPair(vaultRoot, note, TRASH_FOLDER);
+      else await moveNoteToFolder(vaultRoot, note, TRASH_FOLDER);
+      removeTabsEverywhere((id) => id === `${vaultRoot}/${note.path}`);
+      await refreshNotes();
+    } catch (error: unknown) {
+      setRenameStatus({ message: error instanceof Error ? error.message : String(error), isError: true });
+    }
+  }
+
+  async function trashFolder(folderPath: string) {
+    try {
+      await moveFolder(vaultRoot, folderPath, TRASH_FOLDER);
+      removeTabsEverywhere((id) => id.startsWith(`${vaultRoot}/${folderPath}/`));
+      await refreshNotes();
+    } catch (error: unknown) {
+      setRenameStatus({ message: error instanceof Error ? error.message : String(error), isError: true });
+    }
+  }
+
+  /** Opens the right panel's file browser on the bin. */
+  function openTrash() {
+    usePanelLayoutStore.getState().setBrowserPath(TRASH_FOLDER);
+    setRightLayer('browser');
+    if (!isRightSidebarOpen) toggleRightSidebar('right');
+  }
+
   async function handleRenameFolder(folderPath: string, newName: string) {
     try {
       const newPath = await renameFolder(vaultRoot, folderPath, newName);
@@ -647,10 +690,51 @@ function VaultReady({
     return () => window.removeEventListener('keydown', handleKeyDown);
   });
 
+  // Shared by the Files tree and the Browser layer — both edit the same vault.
+  const fileTreeProps: FolderTreeProps = {
+    vaultRoot,
+    notes: treeNotes,
+    folderPaths,
+    activePath: activeRelativePath,
+    renamingNoteId: renamingId,
+    renameValue,
+    onSelect: openRelativePath,
+    onStartRename: startRename,
+    onRenameChange: setRenameValue,
+    onRenameCommit: commitRename,
+    onRenameCancel: () => setRenamingId(null),
+    onMoveNote: (note, targetFolderPath) => void handleMoveNote(note, targetFolderPath),
+    onMoveFolder: (folderPath, targetParentPath) => void handleMoveFolder(folderPath, targetParentPath),
+    onRenameFolder: (folderPath, newName) => void handleRenameFolder(folderPath, newName),
+    onDeleteNote: (note) => (isInTrash(note.path) ? setPendingDelete({ kind: 'note', note }) : void trashNote(note)),
+    onDeleteFolder: (folderPath) => (isInTrash(folderPath) ? setPendingDelete({ kind: 'folder', path: folderPath }) : void trashFolder(folderPath)),
+    onRestoreNote: (note) => void handleMoveNote(note, ''),
+    onRestoreFolder: (folderPath) => void handleMoveFolder(folderPath, ''),
+    onEmptyTrash: () => setPendingDelete({ kind: 'folder', path: TRASH_FOLDER }),
+    onRevealNote: (note) => void revealNote(note),
+    onRevealFolder: (folderPath) => void revealFolder(folderPath),
+    onNewNoteInFolder: (folderPath) => void createNote(folderPath),
+    onNewHubInFolder: (folderPath) => void createHub(folderPath),
+    onNewCanvasInFolder: (folderPath) => void createCanvas(folderPath),
+    onImportPdfInFolder: (folderPath) => void importPdfs(folderPath),
+    onNewFolderAtRoot: () => {
+      setIsCreatingFolder(true);
+      setNewFolderName('');
+    },
+    onNewFolderInFolder: (path) => void handleCreateFolderAt(path),
+  };
+
   return (
     <AppShell
       sidebar={
-        <Sidebar side="left" onResizeEnd={(px) => void setSidebarWidthLeft(px)}>
+        <Sidebar
+          side="left"
+          onResizeEnd={(px) => void setSidebarWidthLeft(px)}
+          onSwipe={(direction) => {
+            setIsStickyMode(false);
+            stepWorkspace(direction);
+          }}
+        >
           <WorkspaceSwitcher
             names={workspaceNames}
             current={currentWorkspace}
@@ -668,7 +752,11 @@ function VaultReady({
             onRename={renameWorkspace}
             onDelete={deleteWorkspace}
           />
+          <div className="-mt-1.5">
           <SidebarNav
+            trashCount={treeNotes.filter((note) => isInTrash(note.path)).length}
+            onOpenTrash={openTrash}
+            onEmptyTrash={fileTreeProps.onEmptyTrash}
             isPinnedOpen={isPinnedOpen}
             onTogglePinned={() => setIsPinnedOpen((isOpen) => !isOpen)}
             isPdfsOpen={isPdfsOpen}
@@ -689,7 +777,8 @@ function VaultReady({
               setIsGraph2DMode(false);
             }}
           />
-          {/* Positioned so the imported-PDFs popup can overlay exactly the tabs list. */}
+          </div>
+          {/* Positioned so the imported-PDFs popup can overlay exactly the tabs list and scratchpad. */}
           <div className="relative flex min-h-0 flex-1 flex-col">
           <SidebarPacket
             title="Tabs"
@@ -720,9 +809,11 @@ function VaultReady({
               // px-1.5 + panel's px-2 = 14px) so its scrollbar sits flush; the
               // padding is less than that, so cards sit closer to the
               // scrollbar than the panel padding alone would put them.
-              className="sidebar-scroll -mr-3.5 min-h-0 flex-1 pr-2.5"
+              // Its scrollbar would show beside the imported-PDFs popup that covers it.
+              className={`sidebar-scroll -mr-3.5 min-h-0 flex-1 pr-2.5 ${isPdfsOpen ? '!overflow-y-hidden' : ''}`}
             />
           </SidebarPacket>
+          <WorkspaceScratchpad value={scratchpad} onChange={setScratchpad} />
           <AnimatePresence>
           {isPdfsOpen && (
             <motion.div
@@ -819,35 +910,12 @@ function VaultReady({
                   style={{ fontSize: '0.8rem' }}
                 />
               )}
-              <FolderTree
-                vaultRoot={vaultRoot}
-                notes={treeNotes}
-                folderPaths={folderPaths}
-                activePath={activeRelativePath}
-                renamingNoteId={renamingId}
-                renameValue={renameValue}
-                onSelect={openRelativePath}
-                onStartRename={startRename}
-                onRenameChange={setRenameValue}
-                onRenameCommit={commitRename}
-                onRenameCancel={() => setRenamingId(null)}
-                onMoveNote={(note, targetFolderPath) => void handleMoveNote(note, targetFolderPath)}
-                onMoveFolder={(folderPath, targetParentPath) => void handleMoveFolder(folderPath, targetParentPath)}
-                onRenameFolder={(folderPath, newName) => void handleRenameFolder(folderPath, newName)}
-                onDeleteNote={(note) => setPendingDelete({ kind: 'note', note })}
-                onDeleteFolder={(folderPath) => setPendingDelete({ kind: 'folder', path: folderPath })}
-                onRevealNote={(note) => void revealNote(note)}
-                onRevealFolder={(folderPath) => void revealFolder(folderPath)}
-                onNewNoteInFolder={(folderPath) => void createNote(folderPath)}
-                onNewHubInFolder={(folderPath) => void createHub(folderPath)}
-                onNewCanvasInFolder={(folderPath) => void createCanvas(folderPath)}
-                onImportPdfInFolder={(folderPath) => void importPdfs(folderPath)}
-                onNewFolderAtRoot={() => {
-                  setIsCreatingFolder(true);
-                  setNewFolderName('');
-                }}
-                onNewFolderInFolder={(path) => void handleCreateFolderAt(path)}
-              />
+              <FolderTree {...fileTreeProps} />
+            </SidebarPacket>
+          )}
+          {activeRightLayer === 'browser' && (
+            <SidebarPacket title="Browser" isFill>
+              <FileBrowser {...fileTreeProps} />
             </SidebarPacket>
           )}
           {activeRightLayer === 'search' && (
@@ -886,10 +954,12 @@ function VaultReady({
                 pendingDelete.kind === 'note' && pendingDeleteFusedNote
                   ? `Delete the PDF "${pendingDelete.note.title}"? Keep its note as a standalone note?`
                   : pendingDelete.kind === 'note'
-                  ? `Delete "${pendingDelete.note.title}"? This can't be undone.`
+                  ? `Delete "${pendingDelete.note.title}" forever? This can't be undone.`
+                  : isTrashFolder(pendingDelete.path)
+                  ? 'Empty the Trash? Everything in it is deleted forever.'
                   : `Delete "${pendingDelete.path.split('/').pop()}" and everything inside it? This can't be undone.`
               }
-              confirmLabel={pendingDeleteFusedNote ? 'delete both' : 'delete'}
+              confirmLabel={pendingDeleteFusedNote ? 'delete both' : pendingDelete.kind === 'folder' && isTrashFolder(pendingDelete.path) ? 'empty trash' : 'delete forever'}
               alternate={
                 pendingDelete.kind === 'note' && pendingDeleteFusedNote
                   ? {
@@ -924,6 +994,7 @@ function VaultReady({
           vaultRoot={vaultRoot}
           noteCount={allNotes?.length ?? 0}
           unresolvedCount={unresolvedCount}
+          activeNoteStats={tabStats.get(activeTabId) ?? null}
           isReadingMode={isReadingMode}
           onToggleReadingMode={() => setIsReadingMode((mode) => !mode)}
         />
@@ -1108,6 +1179,8 @@ function App() {
             workspaceNames={workspaces.workspaceNames}
             currentWorkspace={workspaces.currentWorkspace}
             stepWorkspace={workspaces.stepWorkspace}
+            scratchpad={workspaces.scratchpad}
+            setScratchpad={workspaces.setScratchpad}
             workspaceColors={workspaces.workspaceColors}
             setWorkspaceColor={workspaces.setWorkspaceColor}
             switchWorkspace={workspaces.switchWorkspace}
