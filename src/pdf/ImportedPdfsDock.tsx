@@ -3,6 +3,8 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { FilePdf } from '@phosphor-icons/react';
 import type { NoteSummary } from '../db/queries/notes';
 import { formatFolder } from '../notes/noteStats';
+import { trackGlow } from '../layout/trackGlow';
+import { PdfSize } from './PdfSize';
 
 // Same easing as the app's other floating chrome (ContextMenu.tsx).
 const CARD_EASE = [0.22, 1, 0.36, 1] as const;
@@ -42,7 +44,7 @@ export function ImportedPdfsDock({ pdfs, activePath, onSelect }: ImportedPdfsDoc
           }
         }}
         placeholder="search pdfs"
-        className="mx-1 shrink-0 rounded-row bg-bg px-2 py-1 text-fg-prominent outline-none placeholder:text-fg-faint"
+        className="mx-1 mb-2 shrink-0 rounded-row bg-bg px-2 py-1 text-fg-prominent outline-none placeholder:text-fg-faint"
         style={{ fontSize: '0.8rem' }}
       />
       <div ref={listRef} className="sidebar-scroll relative -mr-3.5 flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto pr-2.5">
@@ -65,21 +67,23 @@ export function ImportedPdfsDock({ pdfs, activePath, onSelect }: ImportedPdfsDoc
             }}
             exit={{ opacity: 0, scale: 0.97, transition: { duration: 0.09, ease: 'easeIn' } }}
             type="button"
+            onMouseMove={trackGlow}
             onClick={(event) => onSelect(pdf.path, event.currentTarget)}
             title={pdf.path}
-            className={`flex shrink-0 flex-col gap-0.5 rounded-tab border px-2.5 py-2 text-left transition-colors duration-panel ease-panel ${
+            className={`tab-glow tab-glow-hover block w-full min-w-0 shrink-0 overflow-hidden rounded-tab border px-2.5 py-2 text-left transition-colors duration-panel ease-panel ${
               activePath === pdf.path
                 ? 'border-[color:var(--border-strong)] bg-bg-packet-active text-fg'
-                : 'border-transparent bg-bg-packet-card text-fg-muted hover:text-fg-prominent'
+                : 'border-transparent bg-bg-packet-card text-fg-muted hover:border-[color:var(--border-strong)] hover:bg-bg-packet-active hover:text-fg-prominent hover:shadow-[var(--shadow-float)]'
             }`}
           >
-            <span className="flex items-center gap-2">
+            <span className="flex min-w-0 items-center gap-2">
               <FilePdf size={15} className="shrink-0 text-accent-link-broken" />
               <span className="min-w-0 flex-1 truncate font-medium" style={{ fontSize: '0.85rem' }}>
+                <PdfSize bytes={pdf.sizeBytes} />
                 {pdf.title}
               </span>
             </span>
-            <span className="truncate pl-[23px] text-fg-faint" style={{ fontSize: '0.72rem' }}>
+            <span className="mt-0.5 block truncate pl-[23px] text-fg-faint" style={{ fontSize: '0.72rem' }}>
               {formatFolder(pdf.path)}
             </span>
           </motion.button>

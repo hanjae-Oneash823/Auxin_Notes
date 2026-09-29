@@ -11,6 +11,7 @@ import { isPdfPath, notePathForPdf } from './pdfFiles';
 interface DiskFile {
   path: string;
   modified_ms: number;
+  size: number;
 }
 
 /** PDFs aren't indexed (they have no text to parse) — they come straight
@@ -31,6 +32,7 @@ export async function listPdfSummaries(vaultRoot: string): Promise<NoteSummary[]
         isHub: false,
         isCanvas: false,
         isPdf: true,
+        sizeBytes: file.size,
       };
     });
 }
