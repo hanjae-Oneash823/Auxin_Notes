@@ -35,7 +35,7 @@ portable-pty = "0.8"
 
 # macOS-only: converts the "filesearcher" popup into a non-activating
 # NSPanel so it can receive keystrokes without making the app "active" —
-# see src-tauri/src/commands/file_searcher_panel.rs for why.
+# see src-tauri/src/commands/popup_panel.rs for why.
 [target.'cfg(target_os = "macos")'.dependencies]
 tauri-nspanel = { git = "https://github.com/ahkohd/tauri-nspanel", branch = "v2.1" }
 

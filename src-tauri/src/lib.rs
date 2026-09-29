@@ -3,10 +3,10 @@ mod vault_files;
 mod watcher;
 
 use commands::app_config::{get_app_config, set_app_config};
-use commands::file_searcher_panel::{hide_file_searcher_panel, show_file_searcher_panel};
+use commands::popup_panel::{hide_popup_panel, show_popup_panel};
 use commands::fs_ops::{
-    allow_vault_asset_access, copy_image_file, delete_folder, delete_note, ensure_dir, move_folder, read_note,
-    rename_note, save_image_data, write_note,
+    allow_vault_asset_access, copy_image_file, delete_folder, delete_note, ensure_dir, existing_paths, move_folder,
+    read_note, rename_note, save_image_data, write_note,
 };
 use commands::terminal::{terminal_kill, terminal_resize, terminal_spawn, terminal_write, TerminalState};
 use commands::vault_scan::{list_vault_files, list_vault_folders};
@@ -27,7 +27,7 @@ pub fn run() {
         .manage(TerminalState::default());
 
     // Registers `tauri_nspanel`'s own managed state (a panel registry keyed
-    // by window label) — required before `commands::file_searcher_panel`'s
+    // by window label) — required before `commands::popup_panel`'s
     // `to_panel()`/`get_webview_panel()` calls below can use it.
     #[cfg(target_os = "macos")]
     let builder = builder.plugin(tauri_nspanel::init());
@@ -61,42 +61,24 @@ pub fn run() {
                 }
             });
 
-            // Sticky-notes quick-capture popup: small, borderless,
-            // always-on-top, its own window (not an overlay inside "main")
-            // so it can float above every other app, Raycast-style. Built
-            // once here, hidden, then just shown/focused/hidden by the
-            // global shortcut handler (src/sticky/useGlobalCaptureShortcut.ts)
-            // and the popup's own blur/Escape handling (CaptureWindow.tsx) —
-            // never recreated, so reopening it is instant.
-            WebviewWindowBuilder::new(app, "capture", WebviewUrl::App("capture.html".into()))
-                .title("Auxin Capture")
-                .inner_size(560.0, 140.0)
-                .decorations(false)
-                .always_on_top(true)
-                .resizable(false)
-                .skip_taskbar(true)
-                .visible(false)
-                .center()
-                .build()?;
-
-            // Visual file searcher popup: same "capture" pattern — small,
-            // borderless, always-on-top, its own window so it floats above
-            // every other app rather than requiring "main" to come forward.
-            // Shown/focused/hidden by the global shortcut handler
-            // (src/fileSearcher/useGlobalFileSearcherShortcut.ts) and the
-            // popup's own blur/Escape handling (FileSearcherOverlay.tsx).
-            // Built by `file_searcher_panel::setup` rather than inline here
-            // — see that module for why (converts it to a native macOS
-            // panel, built once here and only shown/hidden afterwards).
+            // Always-on-top popups — the file searcher and the sticky-notes
+            // quick-capture — each its own window (not an overlay inside
+            // "main") so it floats above every other app, Raycast-style.
+            // Shown/focused/hidden by the global shortcut handlers
+            // (src/fileSearcher/useGlobalFileSearcherShortcut.ts,
+            // src/sticky/useGlobalCaptureShortcut.ts) and each popup's own
+            // blur/Escape handling. Built by `popup_panel::setup` rather than
+            // inline here — see that module for why (converts them to native
+            // macOS panels, built once here and only shown/hidden afterwards).
             //
             // Deferred to the event loop's next turn instead of built inline:
-            // converting it to a panel while `setup` was still running left
+            // converting them to panels while `setup` was still running left
             // every webview (main's included) with no page loaded on a cold
             // start — a plain white/empty window.
             let panel_app = app.handle().clone();
             app.handle().run_on_main_thread(move || {
-                if let Err(error) = commands::file_searcher_panel::setup(&panel_app) {
-                    eprintln!("failed to build the file searcher panel: {error}");
+                if let Err(error) = commands::popup_panel::setup(&panel_app) {
+                    eprintln!("failed to build the popup panels: {error}");
                 }
             })?;
 
@@ -109,6 +91,7 @@ pub fn run() {
             delete_note,
             delete_folder,
             ensure_dir,
+            existing_paths,
             move_folder,
             allow_vault_asset_access,
             save_image_data,
@@ -118,8 +101,8 @@ pub fn run() {
             watch_vault,
             get_app_config,
             set_app_config,
-            show_file_searcher_panel,
-            hide_file_searcher_panel,
+            show_popup_panel,
+            hide_popup_panel,
             terminal_spawn,
             terminal_write,
             terminal_resize,

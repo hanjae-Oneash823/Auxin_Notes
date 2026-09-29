@@ -18,6 +18,7 @@ import {
   type FileSearcherItem,
 } from './FileSearcherNode';
 import { FileSearcherHeader } from './FileSearcherHeader';
+import { hidePopupPanel, PANEL_VARIANTS } from '../popup/popupPanel';
 
 /** Drives the level-transition slide (see the AnimatePresence below). Read
  *  as variant *functions* off `custom`, not as inline `direction ? a : b`
@@ -33,17 +34,6 @@ const LEVEL_VARIANTS = {
   enter: (direction: 1 | -1) => ({ opacity: 0, x: direction === 1 ? 24 : -24 }),
   center: { opacity: 1, x: 0 },
   exit: (direction: 1 | -1) => ({ opacity: 0, x: direction === 1 ? -24 : 24 }),
-};
-
-/** The whole panel's intro/outro. The window itself is transparent, so the
- *  `hidden` pose makes it fully invisible while still ordered in — the panel
- *  is only ordered out once the outro settles on it, and it's ordered back
- *  in still wearing it, so the intro always starts from nothing. The outro
- *  is quicker than the intro (--ease-snappy's duration vs. --duration-panel)
- *  so dismissing never feels like it's waiting on an animation. */
-const PANEL_VARIANTS = {
-  shown: { opacity: 1, scale: 1, y: 0, transition: NODE_TRANSITION },
-  hidden: { opacity: 0, scale: 0.96, y: 8, transition: { duration: 0.16, ease: 'easeIn' as const } },
 };
 
 /** How many carousel slots render on either side of the focused item — the
@@ -124,7 +114,7 @@ function isFilterCharacter(event: KeyboardEvent): boolean {
 }
 
 function hidePanel(): void {
-  void invoke('hide_file_searcher_panel');
+  hidePopupPanel('filesearcher');
 }
 
 interface VaultData {
@@ -165,7 +155,7 @@ async function loadVaultData(): Promise<VaultData | null> {
 
 /**
  * The entire content of the "filesearcher" window (see
- * src-tauri/src/commands/file_searcher_panel.rs) — a small, borderless,
+ * src-tauri/src/commands/popup_panel.rs) — a small, borderless,
  * always-on-top popup, Raycast-style, separate from the main Auxin window so
  * it can float above every other app. Built once at startup and only ever
  * shown/hidden (never closed) — by the global shortcut handler and the
