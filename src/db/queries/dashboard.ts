@@ -15,6 +15,8 @@ export interface RecentNoteEntry {
   excerpt: string;
   isHub: boolean;
   isCanvas: boolean;
+  /** A PDF card (built from the disk listing, not the index). */
+  isPdf: boolean;
 }
 
 export interface TopLinkedNote {
@@ -64,6 +66,7 @@ export async function getRecentNotesRich(db: Database, limit: number): Promise<R
     excerpt: row.is_hub === 1 || row.is_canvas === 1 ? '' : (row.excerpt ?? ''),
     isHub: row.is_hub === 1,
     isCanvas: row.is_canvas === 1,
+    isPdf: false,
   }));
 }
 

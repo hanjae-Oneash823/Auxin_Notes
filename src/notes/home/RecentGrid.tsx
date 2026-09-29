@@ -14,6 +14,10 @@ const STAGGER_BASE_MS = 120;
 /** Icon width (15) + gap (8): detail lines line up under the title, not the
  *  icon — same inset as the sidebar tab cards (TabBar.tsx). */
 const DETAIL_INDENT_CLASS = 'pl-[23px]';
+/** PDF cards carry a slight red wash (the sidebar's PDF red) over the usual card fills. */
+const PDF_CARD_CLASS =
+  'bg-[color-mix(in_srgb,var(--accent-link-broken)_10%,var(--color-packet-card-bg))] hover:bg-[color-mix(in_srgb,var(--accent-link-broken)_16%,var(--color-packet-active-bg))]';
+const DEFAULT_CARD_CLASS = 'bg-bg-packet-card hover:bg-bg-packet-active';
 
 const TITLE_STYLE: CSSProperties = {
   fontSize: '0.85rem',
@@ -58,11 +62,11 @@ export function RecentGrid({ notes, onSelect }: RecentGridProps) {
             type="button"
             onClick={(event) => onSelect(note.path, event.currentTarget)}
             onMouseMove={trackGlow}
-            className="home-rise tab-glow tab-glow-hover group flex flex-col gap-0.5 rounded-tab border border-transparent bg-bg-packet-card px-2.5 py-2 text-left text-fg-muted transition-colors duration-panel ease-panel hover:border-[color:var(--border-strong)] hover:bg-bg-packet-active hover:text-fg-prominent hover:shadow-[var(--shadow-float)]"
+            className={`home-rise tab-glow tab-glow-hover group flex flex-col gap-0.5 rounded-tab border border-transparent ${note.isPdf ? PDF_CARD_CLASS : DEFAULT_CARD_CLASS} px-2.5 py-2 text-left text-fg-muted transition-colors duration-panel ease-panel hover:border-[color:var(--border-strong)] hover:text-fg-prominent hover:shadow-[var(--shadow-float)]`}
             style={{ '--rise-delay': `${STAGGER_BASE_MS + index * STAGGER_MS}ms` } as CSSProperties}
           >
             <div className="flex items-start gap-2">
-              <NoteKindIcon isHub={note.isHub} isCanvas={note.isCanvas} size={15} className="mt-[3px]" />
+              <NoteKindIcon isHub={note.isHub} isCanvas={note.isCanvas} isPdf={note.isPdf} size={15} className="mt-[3px]" />
               <span className="min-w-0 flex-1 break-words font-medium" style={TITLE_STYLE}>
                 {note.title}
               </span>
