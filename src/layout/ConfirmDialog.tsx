@@ -3,6 +3,8 @@ import { useEffect, useRef } from 'react';
 interface ConfirmDialogProps {
   message: string;
   confirmLabel?: string;
+  /** Optional safer third choice (e.g. "keep note") — takes initial focus. */
+  alternate?: { label: string; onSelect: () => void };
   onConfirm: () => void;
   onCancel: () => void;
 }
@@ -17,11 +19,12 @@ interface ConfirmDialogProps {
  * confirmation should require a deliberate choice, not an accidental
  * stray click.
  */
-export function ConfirmDialog({ message, confirmLabel = 'delete', onConfirm, onCancel }: ConfirmDialogProps) {
+export function ConfirmDialog({ message, confirmLabel = 'delete', alternate, onConfirm, onCancel }: ConfirmDialogProps) {
   const confirmRef = useRef<HTMLButtonElement>(null);
+  const alternateRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
-    confirmRef.current?.focus();
+    (alternateRef.current ?? confirmRef.current)?.focus();
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === 'Escape') onCancel();
     }
@@ -44,6 +47,16 @@ export function ConfirmDialog({ message, confirmLabel = 'delete', onConfirm, onC
           >
             cancel
           </button>
+          {alternate && (
+            <button
+              ref={alternateRef}
+              type="button"
+              onClick={alternate.onSelect}
+              className="border border-border-strong px-2 py-1 text-fg-prominent transition-colors duration-panel ease-panel hover:bg-border-default"
+            >
+              {alternate.label}
+            </button>
+          )}
           <button
             ref={confirmRef}
             type="button"

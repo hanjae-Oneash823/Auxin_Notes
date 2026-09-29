@@ -9,6 +9,8 @@ import { getCollapsedFolders, setCollapsedFolders } from '../db/queries/folderSt
 import { buildFolderTree, flattenTree, type FolderNode, type TreeRow } from '../vault/folderTree';
 import { uniqueFolderName } from '../vault/folderEngine';
 import { ContextMenu } from '../layout/ContextMenu';
+import { agentMenuItem } from '../terminal/terminalAgent';
+import { agentTargetFromPath } from '../terminal/terminalAgentPrompt';
 import { CountBadge } from '../layout/CountBadge';
 import { flyCardToTab } from '../layout/flyToTab';
 
@@ -62,6 +64,7 @@ interface FolderTreeProps {
   onNewNoteInFolder: (folderPath: string) => void;
   onNewHubInFolder: (folderPath: string) => void;
   onNewCanvasInFolder: (folderPath: string) => void;
+  onImportPdfInFolder: (folderPath: string) => void;
   /** Right-clicking empty tree space (below/between rows) offers this —
    *  same root-level "start naming a new folder" affordance as the
    *  sidebar's own `[+] folder` button. */
@@ -153,6 +156,7 @@ export function FolderTree({
   onNewNoteInFolder,
   onNewHubInFolder,
   onNewCanvasInFolder,
+  onImportPdfInFolder,
   onNewFolderAtRoot,
   onNewFolderInFolder,
 }: FolderTreeProps) {
@@ -590,6 +594,7 @@ export function FolderTree({
           onClose={() => setRowContextMenu(null)}
           items={[
             { label: 'rename', onSelect: () => onStartRename(rowContextMenu.note) },
+            agentMenuItem(agentTargetFromPath(`${vaultRoot}/${rowContextMenu.note.path}`, false)),
             { label: 'reveal in finder', onSelect: () => onRevealNote(rowContextMenu.note) },
             { label: 'delete', onSelect: () => onDeleteNote(rowContextMenu.note), danger: true },
           ]}
@@ -603,6 +608,7 @@ export function FolderTree({
           items={[
             { label: 'new note here', onSelect: () => onNewNoteInFolder(rowContextMenu.node.path) },
             { label: 'new canvas here', onSelect: () => onNewCanvasInFolder(rowContextMenu.node.path) },
+            { label: 'import pdf here', onSelect: () => onImportPdfInFolder(rowContextMenu.node.path) },
             // A folder either has a hub or doesn't — this swaps to "open
             // hub" once one exists rather than offering to create a second.
             rowContextMenu.node.hub
@@ -622,6 +628,7 @@ export function FolderTree({
                   name: rowContextMenu.node.path.split('/').pop() ?? rowContextMenu.node.path,
                 }),
             },
+            agentMenuItem(agentTargetFromPath(`${vaultRoot}/${rowContextMenu.node.path}`, true)),
             { label: 'reveal in finder', onSelect: () => onRevealFolder(rowContextMenu.node.path) },
             { label: 'delete', onSelect: () => onDeleteFolder(rowContextMenu.node.path), danger: true },
           ]}
@@ -635,6 +642,7 @@ export function FolderTree({
           items={[
             { label: 'new note', onSelect: () => onNewNoteInFolder('') },
             { label: 'new canvas', onSelect: () => onNewCanvasInFolder('') },
+            { label: 'import pdf', onSelect: () => onImportPdfInFolder('') },
             root.hub
               ? {
                   label: 'open hub',

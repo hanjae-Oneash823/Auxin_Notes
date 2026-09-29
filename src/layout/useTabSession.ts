@@ -102,15 +102,22 @@ export function useTabSession({
       if (readRestoreMarker()) {
         console.error('Last tab restore did not finish (crash?) — skipping it and starting fresh');
         writeRestoreMarker(false);
-        restoredVaultRef.current = root;
+        // Deliberately NOT marking the vault as restored: that would switch
+        // saving on, and the empty Home-only state would overwrite the saved
+        // workspaces on disk. Saving stays off for this run; the next launch
+        // (marker now cleared) restores normally.
         return;
       }
-      writeRestoreMarker(true);
       const saved = await loadSaved(root);
       const toAbsolute = (relative: string) => `${root}/${relative}`;
       const candidates = saved.workspaces.flatMap((w) => w.tabs.map(toAbsolute));
       const surviving = new Set(candidates.length > 0 ? await invoke<string[]>('existing_paths', { paths: candidates }) : []);
       if (isCancelled) return;
+      // Set only once this run is the one that will really restore. Setting it
+      // up front made React StrictMode's second effect run (dev) see the first
+      // run's marker, skip its restore as a "crash", while the first run was
+      // already cancelled — so nothing was ever restored.
+      writeRestoreMarker(true);
 
       const restored = saved.workspaces.map((w): Workspace => {
         const tabs = w.tabs.map(toAbsolute).filter((path) => surviving.has(path));
@@ -119,6 +126,8 @@ export function useTabSession({
           name: w.name,
           tabs: [HOME_TAB_ID, ...tabs],
           active: active && tabs.includes(active) ? active : HOME_TAB_ID,
+          color: w.color ?? null,
+          flagged: (w.flagged ?? []).map(toAbsolute).filter((path) => tabs.includes(path)),
         };
       });
       const wanted = saved.current;
@@ -144,6 +153,8 @@ export function useTabSession({
         name: w.name,
         tabs: w.tabs.filter((id) => id !== HOME_TAB_ID).map(toRelative),
         active: w.active === HOME_TAB_ID ? null : toRelative(w.active),
+        color: w.color,
+        flagged: w.flagged.map(toRelative),
       })),
       current: currentName,
     };

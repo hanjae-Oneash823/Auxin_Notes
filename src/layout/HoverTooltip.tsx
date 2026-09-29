@@ -18,7 +18,7 @@ interface TooltipAnchor {
 interface HoverTooltip {
   /** Spread onto the element the tooltip describes. */
   hoverProps: {
-    onMouseEnter: (event: ReactMouseEvent<HTMLElement>) => void;
+    onMouseEnter: (event: ReactMouseEvent<Element>) => void;
     onMouseLeave: () => void;
   };
   /** Dismiss immediately (e.g. on click). */
@@ -46,7 +46,7 @@ export function useHoverTooltip(label: string): HoverTooltip {
     timerRef.current = null;
   }
 
-  function show(event: ReactMouseEvent<HTMLElement>) {
+  function show(event: ReactMouseEvent<Element>) {
     const rect = event.currentTarget.getBoundingClientRect();
     clearTimer();
     timerRef.current = window.setTimeout(() => {

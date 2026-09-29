@@ -8,8 +8,9 @@ export const SIDEBAR_TOGGLE_EASING = 'cubic-bezier(0.32, 0.72, 0, 1)';
 // Small buffer past the transition so `isToggling` never clears mid-animation.
 const TOGGLE_SETTLE_BUFFER_MS = 40;
 
-/** `links` shows backlinks, unresolved links and the tag browser together. */
-export const RIGHT_PANEL_LAYERS = ['files', 'search', 'contents', 'links'] as const;
+/** Left-to-right order of the icon bar. `links` shows backlinks, unresolved links and the tag browser together;
+ *  `terminal` is the shell (kept mounted while hidden — see App.tsx). */
+export const RIGHT_PANEL_LAYERS = ['search', 'files', 'terminal', 'contents', 'links'] as const;
 export type RightPanelLayer = (typeof RIGHT_PANEL_LAYERS)[number];
 const DEFAULT_RIGHT_LAYER: RightPanelLayer = 'files';
 

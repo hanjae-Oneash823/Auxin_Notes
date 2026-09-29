@@ -40,11 +40,13 @@ interface PacketIconButtonProps {
   onClick: () => void;
   /** Dimmed and unclickable. */
   isDisabled?: boolean;
+  /** Tints the icon with the PDF red (the sidebar's Imported PDFs colour). */
+  isRed?: boolean;
   children: ReactNode;
 }
 
 /** Header icon button with the shared custom tooltip (see `useHoverTooltip`). */
-export function PacketIconButton({ title, onClick, isDisabled = false, children }: PacketIconButtonProps) {
+export function PacketIconButton({ title, onClick, isDisabled = false, isRed = false, children }: PacketIconButtonProps) {
   const { hoverProps, hide, tooltip } = useHoverTooltip(title);
 
   return (
@@ -58,7 +60,9 @@ export function PacketIconButton({ title, onClick, isDisabled = false, children 
           onClick();
         }}
         {...hoverProps}
-        className="flex h-6 w-6 items-center justify-center rounded-row text-fg-faint transition-colors duration-panel ease-panel enabled:hover:bg-border-subtle enabled:hover:text-fg-prominent disabled:cursor-default disabled:opacity-30"
+        className={`flex h-6 w-6 items-center justify-center rounded-row transition-colors duration-panel ease-panel enabled:hover:bg-border-subtle disabled:cursor-default disabled:opacity-30 ${
+          isRed ? 'text-accent-link-broken' : 'text-fg-faint enabled:hover:text-fg-prominent'
+        }`}
       >
         {children}
       </button>

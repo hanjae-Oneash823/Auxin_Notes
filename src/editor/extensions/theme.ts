@@ -102,6 +102,12 @@ export const auxinEditorTheme = EditorView.theme(
     // replaced by a widget, since a URL is meant to stay readable/copyable
     // as text. `cursor: pointer` signals it's clickable even though opening
     // it is gated behind Cmd/Ctrl+click while editable (see that file).
+    // PDF anchors (`@p12`, anchorPlugin.ts).
+    '.cm-pdf-anchor': {
+      color: 'var(--accent-warning)',
+      backgroundColor: 'rgba(233, 188, 97, 0.12)',
+      borderRadius: '3px',
+    },
     '.cm-bare-url': {
       color: 'var(--accent-link)',
       textDecoration: 'underline',

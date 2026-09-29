@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { CaretRight, FileText, FilePlus, FolderPlus, House, Plus, Stack, SquaresFour, X, type Icon } from '@phosphor-icons/react';
+import { CaretRight, FilePdf, FileText, FilePlus, Flag, FolderPlus, House, Plus, Stack, SquaresFour, X, type Icon } from '@phosphor-icons/react';
 import { formatCount, formatRelativeTime, type NoteStats } from '../notes/noteStats';
 import { getDb } from '../db/client';
 import { getCollapsedTabGroups, setCollapsedTabGroups } from '../db/queries/folderState';
@@ -8,6 +8,8 @@ import { toRelativePath } from '../vault/syncEngine';
 import { uniqueFolderName } from '../vault/folderEngine';
 import { usePanelLayoutStore } from './panelLayoutStore';
 import { buildTabGroupTree, groupNotesByFolder, type TabGroupNode } from './tabGroups';
+import { agentMenuItem } from '../terminal/terminalAgent';
+import { agentTargetFromPath } from '../terminal/terminalAgentPrompt';
 import { ContextMenu, type ContextMenuItem } from './ContextMenu';
 import { Pill } from './Pill';
 import { PacketIconButton } from './SidebarPacket';
@@ -20,7 +22,7 @@ import { trackGlow } from './trackGlow';
  *  state) and this file (which needs to style it distinctly) agree on it. */
 export const HOME_TAB_ID = 'home';
 
-export type TabKind = 'home' | 'note' | 'hub' | 'canvas';
+export type TabKind = 'home' | 'note' | 'hub' | 'canvas' | 'pdf';
 
 export interface TabItem {
   id: string;
@@ -36,6 +38,8 @@ export interface TabItem {
   modified?: string | null;
   /** Word/image counts; absent for canvases and until first computed. */
   stats?: NoteStats | null;
+  /** Flagged by the user — shown yellow with a flag icon. */
+  isFlagged?: boolean;
 }
 
 const TAB_ICONS: Record<TabKind, Icon> = {
@@ -43,7 +47,11 @@ const TAB_ICONS: Record<TabKind, Icon> = {
   note: FileText,
   hub: SquaresFour,
   canvas: Stack,
+  pdf: FilePdf,
 };
+
+/** Inactive PDF tabs get a dull-red tint (same idea as the flagged tabs' yellow one). */
+const PDF_TAB_BG_CLASS = 'bg-[color-mix(in_srgb,var(--accent-link-broken)_15%,transparent)]';
 
 /** Left inset of a card's detail lines: icon width (15) + gap (8), so they
  *  line up under the title rather than under the icon. */
@@ -83,6 +91,15 @@ interface TabBarProps {
   vaultRoot: string;
   onSelect: (id: string) => void;
   onClose: (id: string) => void;
+  /** Right-click menu actions for a tab. */
+  onToggleFlag: (id: string) => void;
+  onMoveToWorkspace: (id: string, workspaceName: string) => void;
+  /** Adds the tab to another workspace while leaving it in this one. */
+  onDuplicateToWorkspace: (id: string, workspaceName: string) => void;
+  /** `id` is the tab's absolute file path. */
+  onRevealInFinder: (id: string) => void;
+  /** Workspaces a tab can be moved to (every one but the current). */
+  otherWorkspaces: string[];
   /** Reorders tabs by dragging — moves `draggedId` next to `targetId`,
    *  after it when `placeAfter` is true. Scoped to siblings within the same
    *  folder group (see resolveHoverTarget) — dragging into a different
@@ -97,6 +114,7 @@ interface TabBarProps {
    *  over already-built, so this just creates it at that exact path. */
   onNewNote: (folderPath: string) => void;
   onNewCanvas: (folderPath: string) => void;
+  onImportPdf: (folderPath: string) => void;
   onNewSubfolder: (relativePath: string) => void;
   /** Commits the inline rename box a new subfolder drops into (see
    *  `pendingNewFolder`) — same handler FolderTree.tsx's own folder rename
@@ -200,9 +218,15 @@ export function TabBar({
   vaultRoot,
   onSelect,
   onClose,
+  onToggleFlag,
+  onMoveToWorkspace,
+  onDuplicateToWorkspace,
+  onRevealInFinder,
+  otherWorkspaces,
   onReorder,
   onNewNote,
   onNewCanvas,
+  onImportPdf,
   onNewSubfolder,
   onRenameFolder,
   folderPaths,
@@ -320,6 +344,7 @@ export function TabBar({
   // dismiss it before the pointer arrives. Ephemeral state (not persisted
   // like collapsedPaths above), since it's just a browsing aid, not
   // workspace structure.
+  const [tabMenu, setTabMenu] = useState<{ tab: TabItem; x: number; y: number } | null>(null);
   const [moreNotesPopup, setMoreNotesPopup] = useState<{ folderPath: string; x: number; y: number } | null>(null);
   const moreNotesOpenTimerRef = useRef<number | null>(null);
   const moreNotesCloseTimerRef = useRef<number | null>(null);
@@ -621,21 +646,32 @@ export function TabBar({
         data-parent-path={parentPath}
         onMouseDown={isHome ? undefined : (event) => handleMouseDown(tab.id, parentPath, event)}
         onClick={() => handleClick(tab.id)}
+        onContextMenu={
+          isHome
+            ? undefined
+            : (event) => {
+                event.preventDefault();
+                setTabMenu({ tab, x: event.clientX, y: event.clientY });
+              }
+        }
         onMouseMove={isActive ? trackGlow : undefined}
         className={`tab-card group flex shrink-0 cursor-pointer select-none flex-col gap-0.5 rounded-tab border px-2.5 py-2 transition-colors duration-panel ease-panel ${
           draggedId === tab.id ? 'opacity-40' : ''
         } ${
           isActive
             ? 'tab-glow border-[color:var(--border-strong)] bg-bg-packet-active text-fg shadow-[var(--shadow-float)]'
-            : `border-transparent text-fg-muted hover:text-fg-prominent ${isHome ? '' : 'bg-bg-packet-card'}`
+            : `border-transparent text-fg-muted hover:text-fg-prominent ${
+                isHome ? '' : tab.isFlagged ? 'bg-yellow-400/15' : tab.kind === 'pdf' ? PDF_TAB_BG_CLASS : 'bg-bg-packet-card'
+              }`
         }`}
       >
         <div className="flex items-start gap-2">
-          <TabIcon size={15} className={`mt-[3px] shrink-0 ${isHome ? 'text-yellow-400' : ''}`} />
+          <TabIcon size={15} className={`mt-[3px] shrink-0 ${isHome ? 'text-yellow-400' : tab.kind === 'pdf' ? 'text-accent-link-broken' : ''}`} />
           <span className="min-w-0 flex-1 break-words font-medium" style={TITLE_CLAMP_STYLE}>
             {tab.label}
           </span>
           {tab.kind === 'hub' && <Pill>hub</Pill>}
+          {tab.isFlagged && <Flag size={13} weight="fill" className="mt-[3px] shrink-0 text-yellow-400" />}
           {tab.closable && (
             <button
               type="button"
@@ -711,6 +747,9 @@ export function TabBar({
             </PacketIconButton>
             <PacketIconButton title="New canvas" onClick={() => onNewCanvas(node.path)}>
               <Stack size={12} />
+            </PacketIconButton>
+            <PacketIconButton title="Import PDF" isRed onClick={() => onImportPdf(node.path)}>
+              <FilePdf size={12} />
             </PacketIconButton>
           </div>
           <button
@@ -815,6 +854,51 @@ export function TabBar({
   // of leaving a stale entry.
   const moreNotesPopupItems = moreNotesPopup ? buildFolderMenuItems(moreNotesPopup.folderPath, true) : [];
 
+  /** Slides the tab out (like closing it), then hands it to the other workspace. */
+  function moveTab(tabId: string, workspaceName: string) {
+    const card = containerRef.current?.querySelector<HTMLElement>(`[data-tab-id="${CSS.escape(tabId)}"]`);
+    const move = () => {
+      syncReorderBaseline();
+      onMoveToWorkspace(tabId, workspaceName);
+    };
+    if (card) animateTabClose(card, move);
+    else move();
+  }
+
+  const tabMenuItems: ContextMenuItem[] = tabMenu
+    ? [
+        { label: tabMenu.tab.isFlagged ? 'Remove flag' : 'Flag', onSelect: () => onToggleFlag(tabMenu.tab.id) },
+        otherWorkspaces.length > 0
+          ? {
+              label: 'Move to workspace',
+              submenu: otherWorkspaces.map((name) => ({
+                label: name,
+                onSelect: () => moveTab(tabMenu.tab.id, name),
+              })),
+            }
+          : { label: 'Move to workspace (none other)', disabled: true },
+        otherWorkspaces.length > 0
+          ? {
+              label: 'Duplicate to workspace',
+              submenu: otherWorkspaces.map((name) => ({
+                label: name,
+                onSelect: () => onDuplicateToWorkspace(tabMenu.tab.id, name),
+              })),
+            }
+          : { label: 'Duplicate to workspace (none other)', disabled: true },
+        agentMenuItem(agentTargetFromPath(tabMenu.tab.id, false)),
+        { label: 'Show in Finder', onSelect: () => onRevealInFinder(tabMenu.tab.id) },
+        {
+          label: 'Copy path',
+          onSelect: () => {
+            navigator.clipboard.writeText(tabMenu.tab.id).catch((error: unknown) => {
+              console.error('Failed to copy path', error);
+            });
+          },
+        },
+      ]
+    : [];
+
   return (
     <>
       <div
@@ -824,6 +908,9 @@ export function TabBar({
       >
         {renderGroupChildren(groupTree, 0)}
       </div>
+      {tabMenu && (
+        <ContextMenu x={tabMenu.x} y={tabMenu.y} items={tabMenuItems} onClose={() => setTabMenu(null)} />
+      )}
       {moreNotesPopup && moreNotesPopupItems.length > 0 && (
         <ContextMenu
           x={moreNotesPopup.x}

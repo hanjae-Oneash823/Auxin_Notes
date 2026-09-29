@@ -1,6 +1,7 @@
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
 import { CaretLeft, CaretRight, Plus, Trash } from '@phosphor-icons/react';
-import { DEFAULT_WORKSPACE } from './workspaces';
+import { DEFAULT_WORKSPACE, WORKSPACE_COLORS, workspaceTint } from './workspaces';
 import { PacketIconButton, SidebarPacket } from './SidebarPacket';
 
 const PAN_MS = 340;
@@ -8,12 +9,19 @@ const PAN_MS = 340;
 const PAN_EASING = 'cubic-bezier(0.32, 0.72, 0, 1)';
 const PAN_DISTANCE_PX = 36;
 
+/** Same easing as the app's other floating chrome (ContextMenu.tsx). */
+const PICKER_EASE = [0.22, 1, 0.36, 1] as const;
+const SWATCH_STAGGER_S = 0.03;
+const SWATCH_SPRING = { type: 'spring', stiffness: 520, damping: 22 } as const;
+
 interface WorkspaceSwitcherProps {
   names: string[];
   current: string;
   onStep: (step: 1 | -1) => void;
   /** Returns an error message when the name is unusable, else null. */
   onCreate: (name: string) => string | null;
+  colors: Record<string, string | null>;
+  onColor: (name: string, color: string | null) => void;
   /** Returns an error message when the new name is unusable, else null. */
   onRename: (name: string, newName: string) => string | null;
   onDelete: (name: string) => void;
@@ -30,10 +38,39 @@ function panDirection(names: string[], from: string, to: string, previousNames: 
 
 /** The current workspace's name, with step arrows, "new" and "delete". A
  *  change of workspace pans the old name out and the new one in sideways. */
-export function WorkspaceSwitcher({ names, current, onStep, onCreate, onRename, onDelete }: WorkspaceSwitcherProps) {
+export function WorkspaceSwitcher({
+  names,
+  current,
+  onStep,
+  onCreate,
+  colors,
+  onColor,
+  onRename,
+  onDelete,
+}: WorkspaceSwitcherProps) {
   // What the name area is currently an input for, if anything.
   const [editing, setEditing] = useState<'create' | 'rename' | null>(null);
   const isEditing = editing !== null;
+  const [isPicking, setIsPicking] = useState(false);
+  const pickerRef = useRef<HTMLDivElement>(null);
+
+  // The swatch row closes on Escape or a click anywhere outside it.
+  useEffect(() => {
+    if (!isPicking) return;
+    const close = (event: Event) => {
+      if (
+        event instanceof KeyboardEvent ? event.key === 'Escape' : !pickerRef.current?.contains(event.target as Node)
+      ) {
+        setIsPicking(false);
+      }
+    };
+    document.addEventListener('pointerdown', close);
+    document.addEventListener('keydown', close);
+    return () => {
+      document.removeEventListener('pointerdown', close);
+      document.removeEventListener('keydown', close);
+    };
+  }, [isPicking]);
   const isDefault = current === DEFAULT_WORKSPACE;
   const [draft, setDraft] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -93,107 +130,177 @@ export function WorkspaceSwitcher({ names, current, onStep, onCreate, onRename, 
 
   return (
     <SidebarPacket>
-      <div className="grid grid-cols-[1fr_auto_1fr] items-center">
-        <div className="flex justify-start">
-          {!isEditing && (
-            <PacketIconButton
-              title={isDefault ? "the default workspace can't be deleted" : 'delete workspace (notes are kept)'}
-              isDisabled={isDefault}
-              onClick={() => onDelete(current)}
-            >
-              <Trash size={14} />
-            </PacketIconButton>
-          )}
-        </div>
-        <div className="flex gap-1.5" role="presentation">
-          {names.map((name) => {
-            const isCurrent = name === current;
-            const isDefaultDot = name === DEFAULT_WORKSPACE;
-            // The default workspace is a hollow ring; the rest are solid.
-            const tone = isCurrent
-              ? isDefaultDot
-                ? 'border-accent-neon-green'
-                : 'border-accent-neon-green bg-accent-neon-green'
-              : isDefaultDot
-                ? 'border-fg-faint'
-                : 'border-fg-faint bg-fg-faint';
-            return (
-              <span
-                key={name}
-                title={name}
-                className={`h-1.5 w-1.5 rounded-full border transition-colors duration-panel ease-panel ${tone}`}
-              />
-            );
-          })}
-        </div>
-        <div className="flex justify-end">
-          {!isEditing && (
-            <PacketIconButton
-              title="new workspace"
-              onClick={() => {
-                setDraft('');
-                setEditing('create');
-              }}
-            >
-              <Plus size={14} />
-            </PacketIconButton>
-          )}
-        </div>
-      </div>
-      <div className="flex h-7 items-center gap-0.5">
-        {names.length > 1 && !isEditing && (
-          <PacketIconButton title="previous workspace (Cmd+Left)" onClick={() => onStep(-1)}>
-            <CaretLeft size={14} />
-          </PacketIconButton>
-        )}
-        <div className="relative h-full min-w-0 flex-1 overflow-hidden text-center" style={{ fontSize: '0.85rem' }}>
-          {isEditing ? (
-            <input
-              autoFocus
-              onFocus={(event) => event.target.select()}
-              value={draft}
-              placeholder="workspace name"
-              title={error ?? undefined}
-              onChange={(event) => {
-                setDraft(event.target.value);
-                setError(null);
-              }}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') commitCreate();
-                else if (event.key === 'Escape') stopCreating();
-              }}
-              onBlur={stopCreating}
-              className={`h-full w-full bg-transparent px-2 text-center outline-none placeholder:text-fg-faint ${
-                error ? 'text-accent-link-broken' : 'text-fg-prominent'
-              }`}
-            />
-          ) : (
-            <>
-              <span
-                ref={incomingRef}
-                title={isDefault ? undefined : 'double-click to rename'}
-                onDoubleClick={() => {
-                  if (isDefault) return;
-                  setDraft(current);
-                  setEditing('rename');
-                }}
-                className="absolute inset-0 flex items-center justify-center truncate px-2 font-semibold text-fg-prominent"
+      <div
+        className="rounded-tab bg-bg-packet-card px-1 py-1 transition-colors duration-panel ease-panel"
+        style={{ backgroundColor: workspaceTint(colors[current]) }}
+      >
+        <div className="grid grid-cols-[1fr_auto_1fr] items-center">
+          <div className="flex justify-start">
+            {!isEditing && (
+              <PacketIconButton
+                title={isDefault ? "the default workspace can't be deleted" : 'delete workspace (notes are kept)'}
+                isDisabled={isDefault}
+                onClick={() => onDelete(current)}
               >
-                {current}
-              </span>
-              <span
-                ref={outgoingRef}
-                aria-hidden="true"
-                className="pointer-events-none absolute inset-0 flex items-center justify-center truncate px-2 font-semibold text-fg-prominent opacity-0"
+                <Trash size={14} />
+              </PacketIconButton>
+            )}
+          </div>
+          <div ref={pickerRef} className="flex items-center" role="presentation">
+            {/* wait: the dots fade out first, then the swatches pop in one by one. */}
+            <AnimatePresence mode="wait" initial={false}>
+              {isPicking ? (
+                <motion.div
+                  key="swatches"
+                  className="flex items-center gap-1.5"
+                  exit={{ opacity: 0, transition: { duration: 0.08 } }}
+                >
+                  <motion.button
+                    type="button"
+                    title="no color"
+                    aria-label="no color"
+                    initial={{ scale: 0, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1, transition: SWATCH_SPRING }}
+                    whileHover={{ scale: 1.25 }}
+                    whileTap={{ scale: 0.85 }}
+                    onClick={() => {
+                      onColor(current, null);
+                      setIsPicking(false);
+                    }}
+                    className={`h-2.5 w-2.5 rounded-full border border-fg-faint hover:border-fg-prominent ${
+                      !colors[current] ? 'outline outline-1 outline-offset-2 outline-fg-prominent' : ''
+                    }`}
+                  />
+                  {WORKSPACE_COLORS.map((color, index) => (
+                    <motion.button
+                      key={color}
+                      type="button"
+                      aria-label={`color ${color}`}
+                      initial={{ scale: 0, opacity: 0 }}
+                      animate={{
+                        scale: 1,
+                        opacity: 1,
+                        transition: { ...SWATCH_SPRING, delay: (index + 1) * SWATCH_STAGGER_S },
+                      }}
+                      whileHover={{ scale: 1.25 }}
+                      whileTap={{ scale: 0.85 }}
+                      onClick={() => {
+                        onColor(current, color);
+                        setIsPicking(false);
+                      }}
+                      className={`h-2.5 w-2.5 rounded-full ${
+                        colors[current] === color ? 'outline outline-1 outline-offset-2 outline-fg-prominent' : ''
+                      }`}
+                      style={{ background: color }}
+                    />
+                  ))}
+                </motion.div>
+              ) : (
+                <motion.div
+                  key="dots"
+                  className="flex items-center gap-1.5"
+                  initial={{ opacity: 0, scale: 0.85 }}
+                  animate={{ opacity: 1, scale: 1, transition: { duration: 0.14, ease: PICKER_EASE } }}
+                  exit={{ opacity: 0, scale: 0.85, transition: { duration: 0.08 } }}
+                >
+                  {names.map((name) => {
+                    const isCurrent = name === current;
+                    const isDefaultDot = name === DEFAULT_WORKSPACE;
+                    // The default workspace is a hollow ring; the rest are solid.
+                    const tone = isCurrent
+                      ? isDefaultDot
+                        ? 'border-accent-neon-green'
+                        : 'border-accent-neon-green bg-accent-neon-green'
+                      : isDefaultDot
+                        ? 'border-fg-faint'
+                        : 'border-fg-faint bg-fg-faint';
+                    const className = `h-1.5 w-1.5 rounded-full border transition-colors duration-panel ease-panel ${tone}`;
+                    return isCurrent ? (
+                      <button
+                        key={name}
+                        type="button"
+                        title="pick a color"
+                        aria-label="pick a color"
+                        onClick={() => setIsPicking(true)}
+                        className={className}
+                      />
+                    ) : (
+                      <span key={name} title={name} className={className} />
+                    );
+                  })}
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+          <div className="flex justify-end">
+            {!isEditing && (
+              <PacketIconButton
+                title="new workspace"
+                onClick={() => {
+                  setDraft('');
+                  setEditing('create');
+                }}
+              >
+                <Plus size={14} />
+              </PacketIconButton>
+            )}
+          </div>
+        </div>
+        <div className="flex h-7 items-center gap-0.5">
+          {names.length > 1 && !isEditing && (
+            <PacketIconButton title="previous workspace (Cmd+Left)" onClick={() => onStep(-1)}>
+              <CaretLeft size={14} />
+            </PacketIconButton>
+          )}
+          <div className="relative h-full min-w-0 flex-1 overflow-hidden text-center" style={{ fontSize: '0.85rem' }}>
+            {isEditing ? (
+              <input
+                autoFocus
+                onFocus={(event) => event.target.select()}
+                value={draft}
+                placeholder="workspace name"
+                title={error ?? undefined}
+                onChange={(event) => {
+                  setDraft(event.target.value);
+                  setError(null);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') commitCreate();
+                  else if (event.key === 'Escape') stopCreating();
+                }}
+                onBlur={stopCreating}
+                className={`h-full w-full bg-transparent px-2 text-center outline-none placeholder:text-fg-faint ${
+                  error ? 'text-accent-link-broken' : 'text-fg-prominent'
+                }`}
               />
-            </>
+            ) : (
+              <>
+                <span
+                  ref={incomingRef}
+                  title={isDefault ? undefined : 'double-click to rename'}
+                  onDoubleClick={() => {
+                    if (isDefault) return;
+                    setDraft(current);
+                    setEditing('rename');
+                  }}
+                  className="absolute inset-0 flex items-center justify-center truncate px-2 font-semibold text-fg-prominent"
+                >
+                  {current}
+                </span>
+                <span
+                  ref={outgoingRef}
+                  aria-hidden="true"
+                  className="pointer-events-none absolute inset-0 flex items-center justify-center truncate px-2 font-semibold text-fg-prominent opacity-0"
+                />
+              </>
+            )}
+          </div>
+          {names.length > 1 && !isEditing && (
+            <PacketIconButton title="next workspace (Cmd+Right)" onClick={() => onStep(1)}>
+              <CaretRight size={14} />
+            </PacketIconButton>
           )}
         </div>
-        {names.length > 1 && !isEditing && (
-          <PacketIconButton title="next workspace (Cmd+Right)" onClick={() => onStep(1)}>
-            <CaretRight size={14} />
-          </PacketIconButton>
-        )}
       </div>
     </SidebarPacket>
   );

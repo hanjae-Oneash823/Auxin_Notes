@@ -4,6 +4,7 @@ import { bracketMatching, indentOnInput } from '@codemirror/language';
 import { EditorState, type Extension } from '@codemirror/state';
 import { drawSelection, dropCursor, EditorView, keymap } from '@codemirror/view';
 import { Autolink, Table } from '@lezer/markdown';
+import { createAnchorPlugin } from './anchorPlugin';
 import { createBareUrlPlugin } from './bareUrlPlugin';
 import { resolveCodeLanguage } from './codeLanguages';
 import { createHeadingFoldPlugin } from './headingFoldPlugin';
@@ -66,6 +67,7 @@ export function markdownSetup(
     createLinkChipPlugin(vaultRoot, onNavigate, readOnly),
     createTagChipPlugin(readOnly),
     createBareUrlPlugin(readOnly),
+    createAnchorPlugin(),
     createMarkdownLinkPlugin(readOnly),
     // Editing-only affordances — pointless (and inert, since readOnly blocks
     // any change they'd try to make) when the doc can't be edited.

@@ -1,4 +1,5 @@
-import { Files, LinkSimple, ListBullets, MagnifyingGlass, type Icon } from '@phosphor-icons/react';
+import { motion } from 'framer-motion';
+import { Files, LinkSimple, ListBullets, MagnifyingGlass, Terminal, type Icon } from '@phosphor-icons/react';
 import { useHoverTooltip } from './HoverTooltip';
 import { RIGHT_PANEL_LAYERS, usePanelLayoutStore, type RightPanelLayer } from './panelLayoutStore';
 import { SidebarSideIcon } from './WindowChrome';
@@ -13,6 +14,7 @@ const LAYER_META: Record<RightPanelLayer, LayerMeta> = {
   search: { label: 'Search', Icon: MagnifyingGlass },
   contents: { label: 'Contents', Icon: ListBullets },
   links: { label: 'Links & Tags', Icon: LinkSimple },
+  terminal: { label: 'Terminal', Icon: Terminal },
 };
 
 interface LayerButtonProps {
@@ -36,17 +38,24 @@ function LayerButton({ layer, isActive, onSelect }: LayerButtonProps) {
           onSelect(layer);
         }}
         {...hoverProps}
-        className={`relative flex h-9 flex-1 items-center justify-center transition-colors duration-panel ease-panel ${
-          isActive ? 'text-fg' : 'text-fg-faint hover:text-fg-prominent'
-        }`}
+        className="group/layer relative flex h-7 flex-1 items-center justify-center"
       >
-        <LayerIcon size={18} />
+        {/* The selected layer is a green square with a black icon. The square is
+            one shared element (layoutId) that glides from tab to tab. */}
+        {isActive && (
+          <motion.span
+            layoutId="right-layer-indicator"
+            transition={{ type: 'spring', stiffness: 520, damping: 40 }}
+            className="absolute h-5 w-5 rounded-row bg-accent-neon-green"
+          />
+        )}
         <span
-          aria-hidden
-          className={`absolute inset-x-2 bottom-0 h-0.5 rounded-full bg-fg transition-opacity duration-panel ease-panel ${
-            isActive ? 'opacity-100' : 'opacity-0'
+          className={`relative flex h-5 w-5 items-center justify-center transition-colors duration-panel ease-panel ${
+            isActive ? 'text-black' : 'text-fg-faint group-hover/layer:text-fg-prominent'
           }`}
-        />
+        >
+          <LayerIcon size={14} weight={isActive ? 'bold' : 'regular'} />
+        </span>
       </button>
       {tooltip}
     </>
@@ -69,9 +78,9 @@ function CollapseButton() {
           toggleSidebar('right');
         }}
         {...hoverProps}
-        className="flex h-9 w-9 shrink-0 items-center justify-center text-fg-faint transition-colors duration-panel ease-panel hover:text-fg-prominent"
+        className="flex h-7 w-7 shrink-0 items-center justify-center text-fg-faint transition-colors duration-panel ease-panel hover:text-fg-prominent"
       >
-        <SidebarSideIcon side="right" size={18} />
+        <SidebarSideIcon side="right" size={14} />
       </button>
       {tooltip}
     </>
@@ -79,7 +88,7 @@ function CollapseButton() {
 }
 
 /** Icon strip at the top of the right panel — picks which layer (files,
- *  search, contents, links & tags) the panel body shows, with the panel's
+ *  search, contents, links & tags, terminal) the panel body shows, with the panel's
  *  collapse button at the right end. Selection lives in `panelLayoutStore` so
  *  it persists across launches. */
 export function RightPanelHeader() {

@@ -8,6 +8,10 @@ export interface SavedWorkspace {
   name: string;
   tabs: string[];
   active: string | null;
+  /** Absent in workspaces saved before colors existed. */
+  color?: string | null;
+  /** Vault-relative; absent in workspaces saved before flags existed. */
+  flagged?: string[];
 }
 
 export interface SavedWorkspaces {

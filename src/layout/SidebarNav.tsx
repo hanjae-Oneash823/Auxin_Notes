@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { Compass, Note, PushPin } from '@phosphor-icons/react';
+import { CirclesThree, Compass, FilePdf, Note, PushPin } from '@phosphor-icons/react';
 import { openFileSearcherWindow } from '../fileSearcher/openFileSearcherWindow';
 import { useStickyStore } from '../sticky/stickyStore';
 import { CountBadge } from './CountBadge';
@@ -10,6 +10,11 @@ interface SidebarNavProps {
   onTogglePinned: () => void;
   isStickyMode: boolean;
   onToggleStickyMode: () => void;
+  isBubbleMode: boolean;
+  onToggleBubbleMode: () => void;
+  isPdfsOpen: boolean;
+  onTogglePdfs: () => void;
+  pdfCount: number;
 }
 
 interface NavRowProps {
@@ -51,6 +56,11 @@ export function SidebarNav({
   onTogglePinned,
   isStickyMode,
   onToggleStickyMode,
+  isBubbleMode,
+  onToggleBubbleMode,
+  isPdfsOpen,
+  onTogglePdfs,
+  pdfCount,
 }: SidebarNavProps) {
   const stickyCount = useStickyStore((state) => state.notes.length);
 
@@ -65,7 +75,18 @@ export function SidebarNav({
         isActive={false}
         onClick={() => void openFileSearcherWindow()}
       >
-        <Compass size={16} />
+        <Compass size={16} className="text-accent-tag" />
+      </NavRow>
+      <NavRow
+        label="Bubble navigator"
+        title="browse folders as bubbles in the editing area"
+        isActive={isBubbleMode}
+        onClick={onToggleBubbleMode}
+      >
+        <CirclesThree size={16} className="text-accent-tag" />
+      </NavRow>
+      <NavRow label="Imported PDFs" isActive={isPdfsOpen} onClick={onTogglePdfs} count={pdfCount}>
+        <FilePdf size={16} className="text-accent-link-broken" />
       </NavRow>
       <NavRow label="Sticky board" isActive={isStickyMode} onClick={onToggleStickyMode} count={stickyCount}>
         <Note size={16} />

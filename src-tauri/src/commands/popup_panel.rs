@@ -66,6 +66,9 @@ fn spec_for(label: &str) -> Result<&'static PopupSpec, String> {
 #[cfg(target_os = "macos")]
 mod macos {
     use super::PopupSpec;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::Duration;
+    use tauri::window::{Effect, EffectState, EffectsBuilder};
     use tauri::{AppHandle, Manager, WebviewUrl};
     use tauri_nspanel::{tauri_panel, ManagerExt, PanelBuilder, StyleMask};
 
@@ -76,8 +79,131 @@ mod macos {
         }
     });
 
+    // Never key: the backdrop must not take focus from the popup above it.
+    // Its own module because `tauri_panel!` emits module-level imports, which
+    // collide when invoked twice side by side.
+    mod backdrop_panel {
+        #[allow(unused_imports)]
+        use tauri::Manager;
+        use tauri_nspanel::tauri_panel;
+
+        tauri_panel!(BackdropPanel {
+            config: {
+                can_become_key_window: false,
+                can_become_main_window: false,
+            }
+        });
+    }
+    use backdrop_panel::BackdropPanel;
+
+    /// Full-screen frosted layer shown behind the file searcher. A window
+    /// can only blur what is *behind it on screen* (other apps included) by
+    /// being a translucent NSVisualEffectView, so it is its own panel.
+    const BACKDROP_LABEL: &str = "filesearcher-backdrop";
+
     fn not_found(spec: &PopupSpec) -> String {
         format!("{} panel not found", spec.label)
+    }
+
+    /// Built hidden at launch, like the popups. Click-through, so a click
+    /// outside the searcher reaches the app underneath and the searcher's
+    /// own lost-focus handling dismisses it as before.
+    #[allow(deprecated)] // `UltraDark`: no semantic material is as dark
+    pub fn setup_backdrop(app: &AppHandle) -> tauri::Result<()> {
+        PanelBuilder::<_, BackdropPanel>::new(app, BACKDROP_LABEL)
+            .url(WebviewUrl::External(
+                tauri::Url::parse("about:blank").expect("about:blank is a valid URL"),
+            ))
+            .style_mask(StyleMask::empty().nonactivating_panel())
+            .with_window(|window| {
+                window
+                    .decorations(false)
+                    .transparent(true)
+                    .shadow(false)
+                    .always_on_top(true)
+                    .resizable(false)
+                    .skip_taskbar(true)
+                    .visible(false)
+            })
+            .build()?;
+        if let Some(window) = app.get_webview_window(BACKDROP_LABEL) {
+            window.set_ignore_cursor_events(true)?;
+            // `Active`: the panel is never key, and vibrancy that follows the
+            // window's active state renders as flat grey instead of a blur.
+            window.set_effects(
+                EffectsBuilder::new()
+                    // The darkest material — darkness comes from the material,
+                    // since a page background over the effect view killed the blur.
+                    .effect(Effect::UltraDark)
+                    .state(EffectState::Active)
+                    .build(),
+            )?;
+        }
+        Ok(())
+    }
+
+    /// Covers the monitor the searcher is on. Ordered in *before* the
+    /// searcher: same window level, so the later one sits on top.
+    fn show_backdrop(app: &AppHandle, spec: &PopupSpec) -> Result<(), String> {
+        let backdrop = app
+            .get_webview_window(BACKDROP_LABEL)
+            .ok_or("backdrop window not found")?;
+        let monitor = app
+            .get_webview_window(spec.label)
+            .and_then(|window| window.current_monitor().ok().flatten());
+        if let Some(monitor) = monitor {
+            backdrop.set_position(*monitor.position()).map_err(|e| e.to_string())?;
+            backdrop.set_size(*monitor.size()).map_err(|e| e.to_string())?;
+        }
+        let panel = app
+            .get_webview_panel(BACKDROP_LABEL)
+            .map_err(|_| "backdrop panel not found".to_string())?;
+        panel.set_alpha_value(0.0);
+        panel.order_front_regardless();
+        fade_backdrop(app, 0.0, BACKDROP_ALPHA, BACKDROP_FADE_IN_MS, false);
+        Ok(())
+    }
+
+    /// The material's blur radius is fixed by macOS, so the strength is the
+    /// whole window's opacity — lower is subtler.
+    const BACKDROP_ALPHA: f64 = 0.95;
+    const BACKDROP_FADE_IN_MS: u64 = 200;
+    const BACKDROP_FADE_OUT_MS: u64 = 140;
+    const BACKDROP_FADE_STEPS: u64 = 14;
+    /// Bumped by every fade, so a newer one (say, reopening mid-fade-out)
+    /// makes an older one stop stepping instead of fighting it.
+    static BACKDROP_FADE_ID: AtomicU64 = AtomicU64::new(0);
+
+    /// Ramps the backdrop's opacity with an ease-out curve, then optionally
+    /// orders it out. AppKit calls are hopped onto the main thread per step.
+    fn fade_backdrop(app: &AppHandle, from: f64, to: f64, duration_ms: u64, hide_when_done: bool) {
+        let fade_id = BACKDROP_FADE_ID.fetch_add(1, Ordering::SeqCst) + 1;
+        let app = app.clone();
+        std::thread::spawn(move || {
+            let is_current = || BACKDROP_FADE_ID.load(Ordering::SeqCst) == fade_id;
+            for step in 1..=BACKDROP_FADE_STEPS {
+                std::thread::sleep(Duration::from_millis(duration_ms / BACKDROP_FADE_STEPS));
+                if !is_current() {
+                    return;
+                }
+                let progress = step as f64 / BACKDROP_FADE_STEPS as f64;
+                let alpha = from + (to - from) * (1.0 - (1.0 - progress).powi(2));
+                let handle = app.clone();
+                let _ = app.run_on_main_thread(move || {
+                    if let Ok(panel) = handle.get_webview_panel(BACKDROP_LABEL) {
+                        panel.set_alpha_value(alpha);
+                    }
+                });
+            }
+            if hide_when_done && is_current() {
+                let handle = app.clone();
+                let _ = app.run_on_main_thread(move || {
+                    if let Ok(panel) = handle.get_webview_panel(BACKDROP_LABEL) {
+                        panel.hide();
+                    }
+                });
+            }
+        });
     }
 
     /// Builds the popup's window hidden and converts it into a non-activating
@@ -114,6 +240,13 @@ mod macos {
             .get_webview_panel(spec.label)
             .map_err(|_| not_found(spec))?;
 
+        // A missing blur must never stop the searcher itself from opening.
+        if spec.label == "filesearcher" {
+            if let Err(error) = show_backdrop(app, spec) {
+                eprintln!("failed to show the searcher backdrop: {error}");
+            }
+        }
+
         // Not `show_and_make_key`: that makes the panel's content view first
         // responder, which is wry's parent view rather than the webview, so
         // keystrokes wouldn't reach the page until it was clicked.
@@ -133,6 +266,9 @@ mod macos {
     /// A no-op when already hidden. The frontend calls this only once its
     /// outro animation finishes (see FileSearcherOverlay.tsx).
     pub fn hide(app: &AppHandle, spec: &PopupSpec) -> Result<(), String> {
+        if spec.label == "filesearcher" {
+            fade_backdrop(app, BACKDROP_ALPHA, 0.0, BACKDROP_FADE_OUT_MS, true);
+        }
         app.get_webview_panel(spec.label)
             .map(|panel| panel.hide())
             .map_err(|_| not_found(spec))
@@ -168,6 +304,10 @@ fn setup_popup(app: &AppHandle, spec: &'static PopupSpec) -> tauri::Result<()> {
 pub fn setup(app: &AppHandle) -> tauri::Result<()> {
     for spec in POPUPS {
         setup_popup(app, spec)?;
+    }
+    #[cfg(target_os = "macos")]
+    if let Err(error) = macos::setup_backdrop(app) {
+        eprintln!("failed to build the searcher backdrop: {error}");
     }
     Ok(())
 }

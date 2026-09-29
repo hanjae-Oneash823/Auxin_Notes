@@ -5,6 +5,7 @@ import { useTabSession } from './useTabSession';
 import {
   DEFAULT_WORKSPACE,
   emptyWorkspace,
+  addTabCopy,
   neighborWorkspaceName,
   remapWorkspace,
   removeFromWorkspace,
@@ -63,6 +64,11 @@ export function useWorkspaces(vaultRoot: string | null) {
     updateCurrent((w) => removeFromWorkspace(w, (id) => id === tabId));
   }
 
+  /** Closes every tab in the current workspace (Home stays). */
+  function closeAllTabs() {
+    updateCurrent((w) => removeFromWorkspace(w, () => true));
+  }
+
   /** Removes matching tabs from every workspace — a deleted note or folder. */
   function removeTabsEverywhere(shouldRemove: (tabId: string) => boolean) {
     updateAll((w) => removeFromWorkspace(w, shouldRemove));
@@ -113,6 +119,35 @@ export function useWorkspaces(vaultRoot: string | null) {
     return null;
   }
 
+  function toggleFlag(tabId: string) {
+    if (tabId === HOME_TAB_ID) return;
+    updateCurrent((w) => ({
+      ...w,
+      flagged: w.flagged.includes(tabId) ? w.flagged.filter((id) => id !== tabId) : [...w.flagged, tabId],
+    }));
+  }
+
+  /** Sends a tab from the current workspace to another one — or, with
+   *  `shouldKeep`, copies it there and leaves it in this one too. */
+  function sendTabToWorkspace(tabId: string, targetName: string, shouldKeep: boolean) {
+    if (tabId === HOME_TAB_ID || targetName === current.name) return;
+    setWorkspaces((prev) => {
+      const from = prev.find((w) => w.name === current.name);
+      const to = prev.find((w) => w.name === targetName);
+      if (!from || !to) return prev;
+      const nextTo = addTabCopy(from, to, tabId);
+      const nextFrom = shouldKeep ? from : removeFromWorkspace(from, (id) => id === tabId);
+      return prev.map((w) => (w === from ? nextFrom : w === to ? nextTo : w));
+    });
+  }
+
+  const moveTabToWorkspace = (tabId: string, targetName: string) => sendTabToWorkspace(tabId, targetName, false);
+  const duplicateTabToWorkspace = (tabId: string, targetName: string) => sendTabToWorkspace(tabId, targetName, true);
+
+  function setWorkspaceColor(name: string, color: string | null) {
+    setWorkspaces((prev) => prev.map((w) => (w.name === name ? { ...w, color } : w)));
+  }
+
   function switchWorkspace(name: string) {
     if (names.includes(name)) setCurrentName(name);
   }
@@ -140,17 +175,24 @@ export function useWorkspaces(vaultRoot: string | null) {
 
   return {
     tabs: current.tabs,
+    flaggedTabs: current.flagged,
+    toggleFlag,
+    moveTabToWorkspace,
+    duplicateTabToWorkspace,
     activeTabId: current.active,
     pendingActiveId,
     clearPendingActive: () => setPendingActiveId(null),
     setActiveTabId,
     openAbsolutePath,
     closeTab,
+    closeAllTabs,
     removeTabsEverywhere,
     renameTabId,
     remapTabsUnderFolder,
     reorderTabs,
     workspaceNames: names,
+    workspaceColors: Object.fromEntries(workspaces.map((w) => [w.name, w.color])),
+    setWorkspaceColor,
     currentWorkspace: current.name,
     stepWorkspace,
     switchWorkspace,

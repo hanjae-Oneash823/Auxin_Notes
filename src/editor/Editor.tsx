@@ -90,9 +90,14 @@ interface EditorProps {
   onRenameTitle: (newTitle: string) => Promise<void>;
   /** Reading mode: fully rendered, no cursor-based syntax reveal, no edits. */
   readOnly: boolean;
+  /** Fired on every selection/cursor change (PdfView follows PDF anchors with it). */
+  onCursorMove?: (state: EditorState) => void;
 }
 
-export function Editor({ path, vaultRoot, onNavigate, onRenameTitle, readOnly }: EditorProps) {
+export function Editor({ path, vaultRoot, onNavigate, onRenameTitle, readOnly, onCursorMove }: EditorProps) {
+  // A ref, so the once-created CodeMirror listener always calls the latest callback.
+  const cursorMoveRef = useRef(onCursorMove);
+  cursorMoveRef.current = onCursorMove;
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const titleRef = useRef<HTMLTextAreaElement>(null);
@@ -240,6 +245,7 @@ export function Editor({ path, vaultRoot, onNavigate, onRenameTitle, readOnly }:
         extensions: [
           ...markdownSetup(vaultRoot, onNavigate, readOnly),
           EditorView.updateListener.of((update) => {
+            if (update.selectionSet) cursorMoveRef.current?.(update.state);
             if (update.docChanged) {
               scheduleSave(update.view);
               useTocStore.getState().setHeadings(extractHeadings(update.state));

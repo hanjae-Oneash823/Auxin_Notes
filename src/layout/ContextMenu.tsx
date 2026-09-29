@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { CaretRight, Folder } from '@phosphor-icons/react';
 import { CountBadge } from './CountBadge';
 
@@ -15,6 +15,13 @@ export interface ContextMenuItem {
   badge?: number;
   /** A non-interactive, faint placeholder row (e.g. "empty"). */
   disabled?: boolean;
+  /** Animates a disabled row (light sweep + trailing dots) — signals "in progress" rather than "unavailable". */
+  isPulsing?: boolean;
+  /** Small icon shown before the label. */
+  icon?: ReactNode;
+  /** Bright-red warning style (stronger than `danger`) — for options that
+   *  switch off safety prompts. Fills red on hover. */
+  isRisky?: boolean;
 }
 
 interface ContextMenuProps {
@@ -110,7 +117,7 @@ function SubmenuRow({ item, onPick }: { item: ContextMenuItem; onPick: PickHandl
           isOpen ? 'bg-border-subtle text-fg-prominent' : 'text-fg-muted'
         }`}
       >
-        <Folder size={12} className="shrink-0" />
+        {item.icon ?? <Folder size={12} className="shrink-0" />}
         <span className="min-w-0 flex-1 truncate">{item.label}</span>
         {item.badge ? <CountBadge count={item.badge} size="sm" /> : null}
         <CaretRight size={10} weight="bold" className="shrink-0" />
@@ -136,7 +143,8 @@ function MenuItems({ items, onPick }: MenuItemsProps) {
         if (item.submenu) return <SubmenuRow key={key} item={item} onPick={onPick} />;
         if (item.disabled) {
           return (
-            <div key={key} className={`${ROW_CLASS} text-fg-faint`}>
+            <div key={key} className={`${ROW_CLASS} ${item.icon ? 'flex items-center gap-1.5' : ''} text-fg-faint ${item.isPulsing ? 'menu-busy' : ''}`}>
+              {item.icon}
               {item.label}
             </div>
           );
@@ -146,10 +154,15 @@ function MenuItems({ items, onPick }: MenuItemsProps) {
             key={key}
             type="button"
             onClick={() => onPick(item.onSelect)}
-            className={`${ROW_CLASS} hover:bg-border-subtle ${
-              item.danger ? 'text-accent-link-broken' : 'text-fg-muted hover:text-fg-prominent'
+            className={`${ROW_CLASS} ${item.icon ? 'flex items-center gap-1.5' : ''} ${
+              item.isRisky
+                ? 'text-red-400 hover:bg-red-400 hover:text-black'
+                : `hover:bg-border-subtle ${
+                    item.danger ? 'text-accent-link-broken' : 'text-fg-muted hover:text-fg-prominent'
+                  }`
             }`}
           >
+            {item.icon}
             {item.label}
           </button>
         );

@@ -85,3 +85,40 @@ export function animateTabClose(card: HTMLElement, onDone: () => void): void {
   card.setAttribute(CLOSING_ATTRIBUTE, '');
   collapseOut(findExitTarget(card)).onfinish = onDone;
 }
+
+/** Gap between one tab starting to leave and the next — long enough that
+ *  each reads as its own step, shrunk for long lists so the whole thing
+ *  stays under CLOSE_ALL_MAX_TOTAL_MS. */
+const CLOSE_ALL_STEP_MS = 120;
+const CLOSE_ALL_MAX_TOTAL_MS = 900;
+
+/**
+ * Animates every closable tab out in steps — top-level folder groups (name
+ * header and all tabs inside) and ungrouped tab cards, bottom to top so
+ * nothing still waiting shifts as the ones below it collapse — and resolves
+ * when the last has gone. The caller closes the tabs after it resolves. The
+ * pinned Home card is left alone. Resolves immediately under
+ * `prefers-reduced-motion` or when nothing is showing.
+ */
+export function animateCloseAll(container: ParentNode = document): Promise<void> {
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return Promise.resolve();
+
+  const targets = Array.from(container.querySelectorAll<HTMLElement>('[data-folder-group], [data-tab-id]')).filter(
+    (element) =>
+      element.dataset.tabId !== 'home' &&
+      !element.hasAttribute(CLOSING_ATTRIBUTE) &&
+      !element.parentElement?.closest('[data-folder-group]'),
+  );
+
+  const stepMs = Math.min(CLOSE_ALL_STEP_MS, CLOSE_ALL_MAX_TOTAL_MS / Math.max(targets.length, 1));
+  const finished = targets.reverse().map((element, index) => {
+    element.setAttribute(CLOSING_ATTRIBUTE, '');
+    const animation = collapseOut(element);
+    animation.effect?.updateTiming({ delay: index * stepMs });
+    return animation.finished.then(
+      () => undefined,
+      () => undefined,
+    );
+  });
+  return Promise.all(finished).then(() => undefined);
+}
