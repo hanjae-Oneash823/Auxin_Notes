@@ -1,4 +1,5 @@
 import type { NoteSummary } from '../db/queries/notes';
+import { isTrashFolder } from './trash';
 
 export interface FolderNode {
   /** Leaf name only (e.g. "recipes"), not the full path. Empty for the root. */
@@ -70,7 +71,7 @@ export function buildFolderTree(notes: NoteSummary[], folderPaths: string[]): Fo
 }
 
 function sortTree(node: FolderNode): void {
-  node.folders.sort((a, b) => a.name.localeCompare(b.name));
+  node.folders.sort((a, b) => Number(isTrashFolder(a.path)) - Number(isTrashFolder(b.path)) || a.name.localeCompare(b.name));
   node.notes.sort((a, b) => a.title.localeCompare(b.title));
   for (const folder of node.folders) sortTree(folder);
 }

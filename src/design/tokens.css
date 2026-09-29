@@ -107,6 +107,7 @@
   --accent-status-dot: #6fae85;
   --accent-caret: #ffffff;
   --accent-warning: #e9bc61;
+  --accent-trash: #f0913a;
   --accent-info: #8b82be;
   /* Deliberately full neon, unlike the accents above — a one-off pop for a
      badge that should read as "alive", not another muted status color. Same
@@ -314,6 +315,7 @@
   --accent-status-dot: #3f8562;
   --accent-caret: #14161a;
   --accent-warning: #977120;
+  --accent-trash: #c96a12;
   --accent-info: #6b5fa0;
 
   /* Lighter elevation alpha than the dark-mode --shadow-float — a dark
