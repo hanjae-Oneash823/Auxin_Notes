@@ -61,7 +61,7 @@ export async function promoteCard(
   cardId: string,
 ): Promise<CanvasDocument> {
   const card = doc.cards.find((c) => c.id === cardId);
-  if (!card || card.content.type === 'note') return doc;
+  if (!card || (card.content.type !== 'inline' && card.content.type !== 'ghost')) return doc;
 
   const title = card.content.type === 'ghost' ? card.content.title : deriveTitleFromBody(card.content.body);
   const initialBody = card.content.type === 'inline' ? card.content.body : '';

@@ -135,6 +135,26 @@ pub fn save_image_data(vault_root: String, base64_data: String, file_name: Strin
     Ok(format!("{ATTACHMENTS_DIR_NAME}/{saved_name}"))
 }
 
+/// Writes base64-encoded bytes to exactly `path` — used to save a file the
+/// user picked with a save dialog (e.g. an exported canvas image), which can
+/// be anywhere, unlike `save_image_data`'s vault attachments folder.
+#[tauri::command]
+pub fn write_binary_file(path: String, base64_data: String) -> Result<(), String> {
+    let bytes = general_purpose::STANDARD
+        .decode(&base64_data)
+        .map_err(|e| e.to_string())?;
+    fs::write(&path, &bytes).map_err(|e| format!("could not write \"{path}\": {e}"))
+}
+
+/// Reads a file and returns its bytes base64-encoded — for putting an image
+/// straight into a `data:` URL, which sidesteps the webview's rules about
+/// fetching `asset://` URLs from script (used when rendering a canvas to a PNG).
+#[tauri::command]
+pub fn read_file_base64(path: String) -> Result<String, String> {
+    let bytes = fs::read(&path).map_err(|e| format!("could not read \"{path}\": {e}"))?;
+    Ok(general_purpose::STANDARD.encode(bytes))
+}
+
 /// Copies a file already on disk (chosen via the file picker) into the
 /// vault's attachments folder. Returns the vault-relative path for the
 /// markdown link.

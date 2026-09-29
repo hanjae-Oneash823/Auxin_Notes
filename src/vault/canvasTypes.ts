@@ -14,12 +14,23 @@ export interface CanvasDocument {
   cards: CanvasCard[];
   groups: CanvasGroup[];
   arrows: CanvasArrow[];
+  /** `#rrggbb`; absent means the default arrow color. */
+  arrowColor?: string;
 }
 
 export type CanvasCardContent =
   | { type: 'inline'; body: string }
   | { type: 'note'; path: string }
-  | { type: 'ghost'; title: string };
+  | { type: 'ghost'; title: string }
+  | { type: 'title'; text: string }
+  /** Yellow, italic callout. */
+  | { type: 'sticky'; text: string }
+  /** Red, bold callout. */
+  | { type: 'warning'; text: string }
+  /** Link to a `.pdf`; `path` is vault-relative. */
+  | { type: 'pdf'; path: string }
+  /** `path` is vault-relative (`attachments/…`), like a markdown image link. */
+  | { type: 'image'; path: string; /** Display width in world px; default `IMAGE_CARD_WIDTH`. */ width?: number; caption?: string };
 
 export interface CanvasCard {
   id: string;

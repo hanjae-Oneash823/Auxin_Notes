@@ -4,6 +4,7 @@ import { parseLinks } from './parseLinksAndTags';
 import type { ParsedLink } from './types';
 
 const CURRENT_VERSION = 1;
+const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
 
 /**
  * Parses a `.axcanvas` file's raw JSON text into a typed `CanvasDocument`.
@@ -24,7 +25,7 @@ export function parseCanvasDocument(raw: string): CanvasDocument {
   if (typeof json !== 'object' || json === null) {
     throw new Error('canvas file is not a JSON object');
   }
-  const { version, cards, groups, arrows } = json as Record<string, unknown>;
+  const { version, cards, groups, arrows, arrowColor } = json as Record<string, unknown>;
 
   if (version !== CURRENT_VERSION) {
     throw new Error(`unsupported canvas version: ${JSON.stringify(version)}`);
@@ -38,6 +39,8 @@ export function parseCanvasDocument(raw: string): CanvasDocument {
     cards: cards as CanvasCard[],
     groups: (Array.isArray(groups) ? groups : []) as CanvasGroup[],
     arrows: arrows as CanvasArrow[],
+    // Hex only: it ends up in an SVG `stroke`/`fill`, so anything else is dropped.
+    ...(typeof arrowColor === 'string' && HEX_COLOR.test(arrowColor) ? { arrowColor } : {}),
   };
 }
 

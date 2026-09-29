@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { getDb } from '../db/client';
+import { listPdfSummaries } from '../pdf/pdfEngine';
 
 interface NoteResult {
   title: string;
@@ -8,6 +9,8 @@ interface NoteResult {
 
 interface NotePickerPopoverProps {
   vaultRoot: string;
+  /** What to search: indexed notes, or PDFs (listed from disk). */
+  kind: 'note' | 'pdf';
   x: number;
   y: number;
   onSelect: (path: string) => void;
@@ -22,7 +25,7 @@ interface NotePickerPopoverProps {
  * (indexed `LIKE`, capped at 20), with `is_canvas = 0` added since a canvas
  * board is not itself a "note" to drop onto the board.
  */
-export function NotePickerPopover({ vaultRoot, x, y, onSelect, onClose }: NotePickerPopoverProps) {
+export function NotePickerPopover({ vaultRoot, kind, x, y, onSelect, onClose }: NotePickerPopoverProps) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<NoteResult[]>([]);
   const [highlightIndex, setHighlightIndex] = useState(0);
@@ -31,11 +34,20 @@ export function NotePickerPopover({ vaultRoot, x, y, onSelect, onClose }: NotePi
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      const db = await getDb(vaultRoot);
-      const rows = await db.select<NoteResult[]>(
-        'SELECT title, path FROM notes WHERE is_deleted = 0 AND is_canvas = 0 AND title LIKE ? ORDER BY title LIMIT 20',
-        [`%${query}%`],
-      );
+      let rows: NoteResult[];
+      if (kind === 'pdf') {
+        const needle = query.toLowerCase();
+        rows = (await listPdfSummaries(vaultRoot))
+          .filter((pdf) => pdf.title.toLowerCase().includes(needle))
+          .sort((a, b) => a.title.localeCompare(b.title))
+          .slice(0, 20);
+      } else {
+        const db = await getDb(vaultRoot);
+        rows = await db.select<NoteResult[]>(
+          'SELECT title, path FROM notes WHERE is_deleted = 0 AND is_canvas = 0 AND title LIKE ? ORDER BY title LIMIT 20',
+          [`%${query}%`],
+        );
+      }
       if (cancelled) return;
       setResults(rows);
       setHighlightIndex(0);
@@ -43,7 +55,7 @@ export function NotePickerPopover({ vaultRoot, x, y, onSelect, onClose }: NotePi
     return () => {
       cancelled = true;
     };
-  }, [vaultRoot, query]);
+  }, [vaultRoot, kind, query]);
 
   useEffect(() => {
     function handlePointerDown(event: MouseEvent) {
@@ -104,7 +116,7 @@ export function NotePickerPopover({ vaultRoot, x, y, onSelect, onClose }: NotePi
             if (target) onSelect(target.path);
           }
         }}
-        placeholder="search notes…"
+        placeholder={kind === 'pdf' ? 'search PDFs…' : 'search notes…'}
         className="border-b border-border bg-bg px-2 py-1.5 text-fg-prominent outline-none"
         style={{ fontSize: '0.8rem' }}
       />

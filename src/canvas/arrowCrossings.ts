@@ -1,71 +1,81 @@
 import type { Point } from './canvasGeometry';
 
+/** Crossings shallower than this (the sine of the angle between the two
+ *  segments) are ignored: two lines that nearly run alongside each other don't
+ *  read as one hopping the other, and a bump there would smear along the line. */
+const MIN_CROSSING_SINE = 0.3;
+
 interface Segment {
   a: Point;
   b: Point;
 }
 
-function toSegments(points: readonly Point[]): Segment[] {
-  const segments: Segment[] = [];
-  for (let i = 0; i < points.length - 1; i++) segments.push({ a: points[i], b: points[i + 1] });
-  return segments;
+interface Bounds {
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
 }
 
-function isHorizontal(segment: Segment): boolean {
-  return segment.a.y === segment.b.y;
+function segmentsOf(points: readonly Point[]): Segment[] {
+  return points
+    .slice(1)
+    .map((b, i) => ({ a: points[i], b }))
+    .filter(({ a, b }) => a.x !== b.x || a.y !== b.y);
 }
 
-/** The point where a horizontal and a vertical segment genuinely cross —
- *  null for two segments of the same orientation (a parallel run isn't a
- *  "crosses on top of" case; that's what `arrowPath.ts`'s lane offset
- *  already spreads apart) or for segments that only touch at an endpoint
- *  (an arrow legitimately starting where another ends, at a shared card
- *  edge, shouldn't read as a crossing). */
-function perpendicularCrossing(s1: Segment, s2: Segment): Point | null {
-  if (isHorizontal(s1) === isHorizontal(s2)) return null;
-  const h = isHorizontal(s1) ? s1 : s2;
-  const v = isHorizontal(s1) ? s2 : s1;
-  const hy = h.a.y;
-  const hx0 = Math.min(h.a.x, h.b.x);
-  const hx1 = Math.max(h.a.x, h.b.x);
-  const vx = v.a.x;
-  const vy0 = Math.min(v.a.y, v.b.y);
-  const vy1 = Math.max(v.a.y, v.b.y);
-  if (vx <= hx0 || vx >= hx1 || hy <= vy0 || hy >= vy1) return null;
-  return { x: vx, y: hy };
+function boundsOf(points: readonly Point[]): Bounds {
+  const xs = points.map((p) => p.x);
+  const ys = points.map((p) => p.y);
+  return { minX: Math.min(...xs), minY: Math.min(...ys), maxX: Math.max(...xs), maxY: Math.max(...ys) };
+}
+
+function boundsOverlap(a: Bounds, b: Bounds): boolean {
+  return a.minX <= b.maxX && b.minX <= a.maxX && a.minY <= b.maxY && b.minY <= a.maxY;
+}
+
+/** Where two segments properly cross (strictly inside both, not just meeting
+ *  at an end), or null — including for near-parallel pairs. */
+function crossingPoint(s1: Segment, s2: Segment): Point | null {
+  const d1 = { x: s1.b.x - s1.a.x, y: s1.b.y - s1.a.y };
+  const d2 = { x: s2.b.x - s2.a.x, y: s2.b.y - s2.a.y };
+  const denominator = d1.x * d2.y - d1.y * d2.x;
+  const sine = Math.abs(denominator) / (Math.hypot(d1.x, d1.y) * Math.hypot(d2.x, d2.y));
+  if (sine < MIN_CROSSING_SINE) return null;
+
+  const between = { x: s2.a.x - s1.a.x, y: s2.a.y - s1.a.y };
+  const t = (between.x * d2.y - between.y * d2.x) / denominator;
+  const u = (between.x * d1.y - between.y * d1.x) / denominator;
+  if (t <= 0 || t >= 1 || u <= 0 || u >= 1) return null;
+  return { x: s1.a.x + d1.x * t, y: s1.a.y + d1.y * t };
 }
 
 /**
- * Finds every point where two different arrows' routed polylines
- * (`computeArrowPolyline` in `arrowPath.ts`) cross, and assigns the visual
- * hop (a small bump `buildArrowPath` splices into the path) to whichever of
- * the pair has the lexicographically later id — deterministic regardless of
- * iteration/render order, and guarantees exactly one of the two ever hops
- * at a given crossing, never both or neither.
+ * Finds every point where two different arrows' routes cross, and gives the
+ * bump ("hop") to whichever of the pair has the lexicographically later id —
+ * deterministic regardless of iteration order, and exactly one of the two
+ * ever hops at a given crossing, never both or neither. Returns each hopping
+ * arrow's hop points; `arrowPath.ts` draws them.
  */
-export function findArrowCrossings(polylines: ReadonlyMap<string, Point[]>): Map<string, Point[]> {
+export function findArrowCrossings(routes: ReadonlyMap<string, readonly Point[]>): Map<string, Point[]> {
+  const prepared = [...routes].map(([id, points]) => ({ id, segments: segmentsOf(points), bounds: boundsOf(points) }));
   const hopsByArrowId = new Map<string, Point[]>();
-  const ids = [...polylines.keys()];
 
-  for (let i = 0; i < ids.length; i++) {
-    for (let j = i + 1; j < ids.length; j++) {
-      const idA = ids[i];
-      const idB = ids[j];
-      const segmentsA = toSegments(polylines.get(idA)!);
-      const segmentsB = toSegments(polylines.get(idB)!);
-      const hoppingId = idA > idB ? idA : idB;
+  for (let i = 0; i < prepared.length; i++) {
+    for (let j = i + 1; j < prepared.length; j++) {
+      const a = prepared[i];
+      const b = prepared[j];
+      if (!boundsOverlap(a.bounds, b.bounds)) continue;
+      const hoppingId = a.id > b.id ? a.id : b.id;
 
-      for (const segmentA of segmentsA) {
-        for (const segmentB of segmentsB) {
-          const crossing = perpendicularCrossing(segmentA, segmentB);
+      for (const s1 of a.segments) {
+        for (const s2 of b.segments) {
+          const crossing = crossingPoint(s1, s2);
           if (!crossing) continue;
-          const hops = hopsByArrowId.get(hoppingId) ?? [];
-          hops.push(crossing);
-          hopsByArrowId.set(hoppingId, hops);
+          hopsByArrowId.set(hoppingId, [...(hopsByArrowId.get(hoppingId) ?? []), crossing]);
         }
       }
     }
   }
-
   return hopsByArrowId;
 }

@@ -1,29 +1,83 @@
 import { useEffect, useRef, useState } from 'react';
-import type { PointerEvent as ReactPointerEvent, WheelEvent as ReactWheelEvent } from 'react';
+import type { DragEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, WheelEvent as ReactWheelEvent } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { message } from '@tauri-apps/plugin-dialog';
 import { ulid } from 'ulid';
 import { parseCanvasDocument } from '../vault/parseCanvas';
 import { syncFile, toRelativePath } from '../vault/syncEngine';
 import type { CanvasArrow as CanvasArrowData, CanvasCard as CanvasCardData, CanvasDocument } from '../vault/canvasTypes';
-import { assignArrowLanes } from './arrowLanes';
-import { findArrowCrossings } from './arrowCrossings';
-import { buildArrowPath, computeArrowPolyline, crossbarShape, type CrossbarShape } from './arrowPath';
+import { exitPoint } from './arrowGeometry';
+import { layoutArrowLabel } from './arrowLabelLayout';
+import { buildArrowPath } from './arrowPath';
+import { useArrowRoutes } from './useArrowRoutes';
 import { CanvasArrow, CanvasArrowDefs } from './CanvasArrow';
 import { CanvasCard } from './CanvasCard';
+import { ContextMenu, type ContextMenuItem } from '../layout/ContextMenu';
+import { buildArrowMenu, buildBackgroundMenu, buildCardMenu } from './canvasContextMenu';
 import {
+  ARROW_COLOR,
+  ARROW_LABEL_INPUT_WIDTH,
   ARROW_CORNER_RADIUS,
+  ARROW_STROKE_PX,
   DEFAULT_CARD_HEIGHT,
   DEFAULT_CARD_WIDTH,
   DRAG_CLICK_THRESHOLD_PX,
+  DUPLICATE_OFFSET_PX,
+  IMAGE_CARD_WIDTH,
+  IMAGE_STAGGER_PX,
+  FIT_PADDING_PX,
+  TOOLBAR_INSET_PX,
   MAX_ZOOM,
+  VIEW_ANIMATION_MS,
   MIN_ZOOM,
   ZOOM_STEP,
+  OPTIMIZE_ANIMATION_MS,
+  OPTIMIZE_PASSES,
+  ROTATE_STEP_DEGREES,
 } from './canvasConstants';
 import { offsetPosition, rectsIntersect, type NavDirection, type Point, type Rect } from './canvasGeometry';
+import { imageFilesFrom, pickAndCopyImages, saveImageFile } from './canvasImages';
 import { findOrCreateGhost } from './ghostCards';
+import { flipPositions, type FlipAxis } from './flipLayout';
+import { LayoutToolbar } from './LayoutToolbar';
+import { NewToolbar } from './NewToolbar';
+import { ArrowColorPicker } from './ArrowColorPicker';
+import { CARD_CLIPBOARD_MARKER, cloneCards, copyToCardClipboard, isCopyableCard, takeCardClipboard } from './cardClipboard';
+import { CANVAS_DRAG_EVENT, CANVAS_DROP_EVENT, CANVAS_DROP_ID, type CanvasDragDetail, type CanvasDropDetail } from './canvasDrop';
+import { DropPreviewCard } from './DropPreviewCard';
+import { EditToolbar } from './EditToolbar';
+import { ExportToolbar } from './ExportToolbar';
+import { exportBoardAsImage, pickImageExportPath } from './exportImage';
+import { useCanvasHistory, type HistoryMode } from './useCanvasHistory';
+import { getSavedView, saveView } from './canvasViewStore';
+import { useIsMetaHeld } from './useIsMetaHeld';
+import { ToolbarShell } from './ToolbarShell';
+import { ViewToolbar } from './ViewToolbar';
+import { boundsOfCards, shiftToDefaultViewCenter, viewFittingRect, type ViewState } from './viewTransforms';
+import { optimizeLayout } from './optimizeLayout';
+import { rotatePositions } from './rotateLayout';
 import { NotePickerPopover } from './NotePickerPopover';
 import { promoteCard } from './promoteCard';
 import { useCanvasKeyboardNav } from './useCanvasKeyboardNav';
+
+/** Resolves after React has committed and the browser has painted the state just set. */
+function nextPaint(): Promise<void> {
+  return new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+}
+
+/** True when the event's target is somewhere the user types (a card's editor,
+ *  the terminal, any input) — keyboard and clipboard shortcuts leave those alone. */
+function isTypingTarget(target: EventTarget | null): boolean {
+  return target instanceof Element && target.closest('input, textarea, [contenteditable="true"], .cm-editor') !== null;
+}
+
+interface ArrowLabelEdit {
+  arrowId: string;
+  /** World coordinates of the label's anchor on the arrow. */
+  x: number;
+  y: number;
+  value: string;
+}
 
 interface CanvasViewProps {
   path: string;
@@ -45,6 +99,15 @@ interface ArrowDraft {
   fromCardId: string;
   x: number;
   y: number;
+}
+
+interface OpenMenu {
+  /** Distinguishes a menu from the one it replaced — a closing menu's delayed
+   *  `onClose` must not tear down the menu opened right after it. */
+  id: number;
+  x: number;
+  y: number;
+  items: ContextMenuItem[];
 }
 
 interface TitlePrompt {
@@ -74,18 +137,59 @@ export function CanvasView({ path, vaultRoot, onNavigate, onSynced }: CanvasView
   // DOM focus into a card's CodeMirror itself, or arrow-key board navigation
   // would stop working the moment a card became "focused".
   const [autoFocusCardId, setAutoFocusCardId] = useState<string | null>(null);
-  const [zoom, setZoom] = useState(1);
-  const [pan, setPan] = useState<Point>({ x: 0, y: 0 });
+  // The one card whose text is live (editable, selectable) — entered by a
+  // plain click on a card, or by creating one. Every other card's text is
+  // inert so the whole card can be dragged.
+  const [editingCardId, setEditingCardId] = useState<string | null>(null);
+  const isMetaHeld = useIsMetaHeld();
+  // Start from this canvas's last view this session, if it had one.
+  const [savedView] = useState(() => getSavedView(path));
+  const [zoom, setZoom] = useState(savedView?.zoom ?? 1);
+  const [pan, setPan] = useState<Point>(savedView?.pan ?? { x: 0, y: 0 });
+  useEffect(() => {
+    saveView(path, { zoom, pan });
+  }, [path, zoom, pan]);
   const [arrowDraft, setArrowDraft] = useState<ArrowDraft | null>(null);
   // Screen-space (viewport-relative) marquee-select overlay rect, live while
   // a left-button drag is in progress on the bare background.
   const [marquee, setMarquee] = useState<{ left: number; top: number; width: number; height: number } | null>(null);
   const [titlePrompt, setTitlePrompt] = useState<TitlePrompt | null>(null);
   const [notePickerAnchor, setNotePickerAnchor] = useState<Point | null>(null);
+  const optimizeFrameRef = useRef<number | null>(null);
+  /** Which pass ("1"–"4") an optimize run is on, or null when idle. */
+  const [optimizePass, setOptimizePass] = useState<number | null>(null);
+  const isUnmountedRef = useRef(false);
+  useEffect(() => {
+    isUnmountedRef.current = false;
+    return () => {
+      isUnmountedRef.current = true;
+      if (optimizeFrameRef.current !== null) cancelAnimationFrame(optimizeFrameRef.current);
+    };
+  }, []);
+  const [notePickerKind, setNotePickerKind] = useState<'note' | 'pdf'>('note');
+  const [menu, setMenu] = useState<OpenMenu | null>(null);
 
   const viewportRef = useRef<HTMLDivElement>(null);
-  const addNoteButtonRef = useRef<HTMLButtonElement>(null);
+  /** The pan/zoom-transformed layer that holds every card and arrow (what gets exported). */
+  const worldLayerRef = useRef<HTMLDivElement>(null);
+  const [isExporting, setIsExporting] = useState(false);
+  const menuIdRef = useRef(0);
+  // World-space top-left the note picker's card should land at — set when it
+  // was opened from the background menu, undefined for the toolbar button
+  // (which drops the card at the viewport center).
+  const notePickerDropRef = useRef<Point | undefined>(undefined);
   const docRef = useRef<CanvasDocument | null>(null);
+  const history = useCanvasHistory({ getDoc: () => docRef.current, applyDoc: applyHistoryDoc });
+  /** A note/PDF being dragged over the board: the card that would be dropped, in world coordinates. */
+  const [dropPreview, setDropPreview] = useState<{ path: string; isPdf: boolean; x: number; y: number } | null>(null);
+  /** The arrow whose label is being typed, and where (world coords) its input sits. */
+  const [arrowLabelEdit, setArrowLabelEdit] = useState<ArrowLabelEdit | null>(null);
+  // Mirrors the state so blur/Escape/Enter each see whether an edit is still open.
+  const arrowLabelEditRef = useRef<ArrowLabelEdit | null>(null);
+  function setLabelEdit(next: ArrowLabelEdit | null) {
+    arrowLabelEditRef.current = next;
+    setArrowLabelEdit(next);
+  }
   const panRef = useRef(pan);
   const zoomRef = useRef(zoom);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -97,16 +201,39 @@ export function CanvasView({ path, vaultRoot, onNavigate, onSynced }: CanvasView
   const groupDragSnapshotRef = useRef<Map<string, Point> | null>(null);
 
   useEffect(() => {
-    docRef.current = doc;
-  }, [doc]);
-  useEffect(() => {
     panRef.current = pan;
   }, [pan]);
+  // Opening or closing a side pane resizes this board. Shifting the pan by
+  // half of each size change keeps whatever is at the middle of the view at
+  // the middle, instead of the content staying pinned to the top-left corner.
+  // (Observed after the doc loads: the viewport element doesn't exist before.)
+  const isBoardMounted = doc !== null;
+  useEffect(() => {
+    const el = viewportRef.current;
+    if (!el) return;
+    let last = { w: el.clientWidth, h: el.clientHeight };
+    const observer = new ResizeObserver(() => {
+      const next = { w: el.clientWidth, h: el.clientHeight };
+      const dx = (next.w - last.w) / 2;
+      const dy = (next.h - last.h) / 2;
+      last = next;
+      if (dx !== 0 || dy !== 0) setPan((prev) => ({ x: prev.x + dx, y: prev.y + dy }));
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [isBoardMounted]);
   useEffect(() => {
     zoomRef.current = zoom;
   }, [zoom]);
 
   const relativePath = toRelativePath(vaultRoot, path);
+
+  // Every arrow's route — a free-angle line from one card's edge to the
+  // other's, routed around the other cards by libavoid when it's loaded (see
+  // `useArrowRoutes`), plus where arrows cross (drawn as hop bumps). Recomputed
+  // only when the document changes, so pan, zoom,
+  // hover, selection and the marquee re-render without re-routing.
+  const { routes: arrowRoutes, hops: arrowHops } = useArrowRoutes(doc);
 
   useEffect(() => {
     let cancelled = false;
@@ -115,7 +242,8 @@ export function CanvasView({ path, vaultRoot, onNavigate, onSynced }: CanvasView
       try {
         const raw = await invoke<string>('read_note', { path });
         if (cancelled) return;
-        setDoc(parseCanvasDocument(raw));
+        replaceDoc(parseCanvasDocument(raw));
+        history.clear();
       } catch (error: unknown) {
         if (!cancelled) setLoadError(error instanceof Error ? error.message : String(error));
       }
@@ -131,7 +259,7 @@ export function CanvasView({ path, vaultRoot, onNavigate, onSynced }: CanvasView
           void invoke('write_note', { path, content: JSON.stringify(current) }).then(() => syncFile(vaultRoot, path));
         }
       }
-      setDoc(null);
+      replaceDoc(null);
       setFocusedCardId(null);
       setSelectedCardIds(new Set());
     };
@@ -149,9 +277,41 @@ export function CanvasView({ path, vaultRoot, onNavigate, onSynced }: CanvasView
     }, AUTOSAVE_DELAY_MS);
   }
 
-  function updateDoc(updater: (doc: CanvasDocument) => CanvasDocument) {
-    setDoc((prev) => (prev ? updater(prev) : prev));
+  /** Installs `next` as the board's document. The ref is set first and
+   *  synchronously: it, not React state, is what edits build on, so two edits
+   *  in one event handler (or a rAF frame between renders) never read a stale
+   *  document. */
+  function replaceDoc(next: CanvasDocument | null) {
+    docRef.current = next;
+    setDoc(next);
+  }
+
+  /** Applies an edit, recording the document it replaced for undo per `mode`
+   *  (see `HistoryMode`; every edit is its own step by default). */
+  function updateDoc(updater: (doc: CanvasDocument) => CanvasDocument, mode: HistoryMode = 'push') {
+    const before = docRef.current;
+    if (!before) return;
+    const after = updater(before);
+    if (after === before) return;
+    history.record(before, mode);
+    replaceDoc(after);
     scheduleSave();
+  }
+
+  /** Puts an undo/redo result on the board, dropping selection and edit
+   *  state that points at cards the restored document doesn't have. */
+  function applyHistoryDoc(restored: CanvasDocument) {
+    if (optimizeFrameRef.current !== null) {
+      cancelAnimationFrame(optimizeFrameRef.current);
+      optimizeFrameRef.current = null;
+    }
+    const cardIds = new Set(restored.cards.map((c) => c.id));
+    replaceDoc(restored);
+    scheduleSave();
+    setSelectedCardIds((prev) => new Set([...prev].filter((id) => cardIds.has(id))));
+    setFocusedCardId((id) => (id && cardIds.has(id) ? id : null));
+    setEditingCardId(null);
+    setLabelEdit(null);
   }
 
   function screenToWorld(clientX: number, clientY: number): Point {
@@ -174,8 +334,15 @@ export function CanvasView({ path, vaultRoot, onNavigate, onSynced }: CanvasView
   function handleChangeBody(cardId: string, body: string) {
     updateDoc((d) => ({
       ...d,
-      cards: d.cards.map((c) => (c.id === cardId && c.content.type === 'inline' ? { ...c, content: { ...c.content, body } } : c)),
-    }));
+      cards: d.cards.map((c) => {
+        if (c.id !== cardId) return c;
+        if (c.content.type === 'inline') return { ...c, content: { ...c.content, body } };
+        if (c.content.type === 'title' || c.content.type === 'sticky' || c.content.type === 'warning') {
+          return { ...c, content: { ...c.content, text: body } };
+        }
+        return c;
+      }),
+    }), { group: `text:${cardId}` });
   }
 
   /** `CanvasCard`'s `onMoveBy` — `dx`/`dy` is the total delta since drag
@@ -191,11 +358,35 @@ export function CanvasView({ path, vaultRoot, onNavigate, onSynced }: CanvasView
         const start = snapshot.get(c.id);
         return start ? { ...c, x: start.x + dx, y: start.y + dy } : c;
       }),
-    }));
+    }), { group: 'move' });
   }
 
-  function handleResize(cardId: string, w: number, h: number) {
-    updateDoc((d) => ({ ...d, cards: d.cards.map((c) => (c.id === cardId ? { ...c, w, h } : c)) }));
+  /** `CanvasCard`'s `onAutoSize` — a card measured itself (its content
+   *  changed) so store the new box; arrows, marquee hits and keyboard nav all
+   *  read `w`/`h` off the document. Skips sub-pixel changes so a stable card
+   *  never re-saves. */
+  function handleAutoSize(cardId: string, w: number, h: number) {
+    // A size that isn't a real, positive number (a measurement taken mid-layout
+    // or while the board is hidden) must never reach the saved file.
+    if (!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) return;
+    const card = docRef.current?.cards.find((c) => c.id === cardId);
+    if (!card || (Math.abs(card.w - w) < 1 && Math.abs(card.h - h) < 1)) return;
+    // Not an edit of the user's: a card re-measuring itself.
+    updateDoc((d) => ({ ...d, cards: d.cards.map((c) => (c.id === cardId ? { ...c, w, h } : c)) }), 'skip');
+  }
+
+  function handleResizeImage(cardId: string, width: number) {
+    updateDoc((d) => ({
+      ...d,
+      cards: d.cards.map((c) => (c.id === cardId && c.content.type === 'image' ? { ...c, content: { ...c.content, width } } : c)),
+    }), { group: `resize:${cardId}` });
+  }
+
+  function handleChangeCaption(cardId: string, caption: string) {
+    updateDoc((d) => ({
+      ...d,
+      cards: d.cards.map((c) => (c.id === cardId && c.content.type === 'image' ? { ...c, content: { ...c.content, caption } } : c)),
+    }), { group: `caption:${cardId}` });
   }
 
   function handleDelete(cardId: string) {
@@ -220,7 +411,10 @@ export function CanvasView({ path, vaultRoot, onNavigate, onSynced }: CanvasView
    *  `handleDelete` directly, so an explicit click there only ever removes
    *  the one card clicked, even inside a multi-selection. */
   function handleDeleteSelected(cardId: string) {
-    const idsToDelete = selectedCardIds.size > 0 ? selectedCardIds : new Set([cardId]);
+    deleteCards(selectedCardIds.size > 0 ? selectedCardIds : new Set([cardId]));
+  }
+
+  function deleteCards(idsToDelete: ReadonlySet<string>) {
     updateDoc((d) => ({
       ...d,
       cards: d.cards.filter((c) => !idsToDelete.has(c.id)),
@@ -234,7 +428,9 @@ export function CanvasView({ path, vaultRoot, onNavigate, onSynced }: CanvasView
     const current = docRef.current;
     if (!current) return;
     const next = await promoteCard(vaultRoot, relativePath, current, cardId);
-    setDoc(next);
+    if (next === current) return;
+    history.record(current, 'push');
+    replaceDoc(next);
     scheduleSave();
   }
 
@@ -257,6 +453,7 @@ export function CanvasView({ path, vaultRoot, onNavigate, onSynced }: CanvasView
     });
     setFocusedCardId(newCardId);
     setAutoFocusCardId(newCardId);
+    setEditingCardId(newCardId);
   }
 
   function handleStartTyping(initialChar: string) {
@@ -281,6 +478,7 @@ export function CanvasView({ path, vaultRoot, onNavigate, onSynced }: CanvasView
     }));
     setFocusedCardId(newCardId);
     setAutoFocusCardId(newCardId);
+    setEditingCardId(newCardId);
   }
 
   useCanvasKeyboardNav({
@@ -330,6 +528,7 @@ export function CanvasView({ path, vaultRoot, onNavigate, onSynced }: CanvasView
    *  `viewportRef` itself is `tabIndex={-1}` so it can receive this
    *  programmatic focus. */
   function focusCard(cardId: string | null) {
+    setEditingCardId(null);
     setFocusedCardId(cardId);
     setSelectedCardIds(cardId ? new Set([cardId]) : new Set());
     viewportRef.current?.focus();
@@ -352,6 +551,8 @@ export function CanvasView({ path, vaultRoot, onNavigate, onSynced }: CanvasView
    *  for a potential group drag); clicking anything else collapses to just
    *  that one card, matching single-select's prior behavior. */
   function handleCardPointerDown(cardId: string) {
+    history.breakGroup();
+    setEditingCardId((prev) => (prev === cardId ? prev : null));
     setFocusedCardId(cardId);
     viewportRef.current?.focus();
     setSelectedCardIds((prev) => {
@@ -367,6 +568,7 @@ export function CanvasView({ path, vaultRoot, onNavigate, onSynced }: CanvasView
    *  selected. */
   function handleCardDragEnd(cardId: string, moved: boolean) {
     if (moved) return;
+    setEditingCardId(cardId);
     setSelectedCardIds((prev) => (prev.size > 1 && prev.has(cardId) ? new Set([cardId]) : prev));
   }
 
@@ -442,6 +644,7 @@ export function CanvasView({ path, vaultRoot, onNavigate, onSynced }: CanvasView
     const hits = (docRef.current?.cards ?? []).filter((c) => rectsIntersect(marqueeRect, c)).map((c) => c.id);
     setSelectedCardIds(new Set(hits));
     setFocusedCardId(hits[0] ?? null);
+    setEditingCardId(null);
   }
 
   function handleStartArrow(fromCardId: string, event: ReactPointerEvent) {
@@ -498,17 +701,25 @@ export function CanvasView({ path, vaultRoot, onNavigate, onSynced }: CanvasView
     });
   }
 
-  function handleAddCard() {
-    const newCardId = ulid();
+  /** Top-left for a new card: `at` when given (a right-click position),
+   *  else centered in the current viewport. */
+  function newCardOrigin(at?: Point): Point {
+    if (at) return at;
     const center = viewportCenterWorld();
+    return { x: center.x - DEFAULT_CARD_WIDTH / 2, y: center.y - DEFAULT_CARD_HEIGHT / 2 };
+  }
+
+  function handleAddCard(at?: Point) {
+    const newCardId = ulid();
+    const origin = newCardOrigin(at);
     updateDoc((d) => ({
       ...d,
       cards: [
         ...d.cards,
         {
           id: newCardId,
-          x: center.x - DEFAULT_CARD_WIDTH / 2,
-          y: center.y - DEFAULT_CARD_HEIGHT / 2,
+          x: origin.x,
+          y: origin.y,
           w: DEFAULT_CARD_WIDTH,
           h: DEFAULT_CARD_HEIGHT,
           content: { type: 'inline', body: '' },
@@ -517,11 +728,13 @@ export function CanvasView({ path, vaultRoot, onNavigate, onSynced }: CanvasView
     }));
     setFocusedCardId(newCardId);
     setAutoFocusCardId(newCardId);
+    setEditingCardId(newCardId);
   }
 
-  function handleOpenNotePicker() {
-    const rect = addNoteButtonRef.current?.getBoundingClientRect();
-    setNotePickerAnchor(rect ? { x: rect.left, y: rect.bottom + 4 } : { x: 12, y: 32 });
+  function handleOpenPicker(kind: 'note' | 'pdf', anchor: Point) {
+    setNotePickerKind(kind);
+    notePickerDropRef.current = undefined;
+    setNotePickerAnchor(anchor);
   }
 
   /** Drops an existing note onto the board as a `{type: 'note', path}` card
@@ -529,32 +742,469 @@ export function CanvasView({ path, vaultRoot, onNavigate, onSynced }: CanvasView
    *  note is already placed on this board, focuses the existing card instead
    *  of adding a duplicate — the same dedup call `findOrCreateGhost` makes
    *  for not-yet-created titles. */
-  function handleInsertNoteCard(path: string) {
+  function handleInsertNoteCard(path: string, at?: Point, type: 'note' | 'pdf' = 'note') {
     const current = docRef.current;
     if (!current) return;
-    const existing = current.cards.find((c) => c.content.type === 'note' && c.content.path === path);
+    const existing = current.cards.find((c) => c.content.type === type && c.content.path === path);
     if (existing) {
       focusCard(existing.id);
       return;
     }
 
     const newCardId = ulid();
-    const center = viewportCenterWorld();
+    const origin = newCardOrigin(at);
     updateDoc((d) => ({
       ...d,
       cards: [
         ...d.cards,
         {
           id: newCardId,
-          x: center.x - DEFAULT_CARD_WIDTH / 2,
-          y: center.y - DEFAULT_CARD_HEIGHT / 2,
+          x: origin.x,
+          y: origin.y,
           w: DEFAULT_CARD_WIDTH,
           h: DEFAULT_CARD_HEIGHT,
-          content: { type: 'note', path },
+          content: { type, path },
         },
       ],
     }));
     focusCard(newCardId);
+  }
+
+  /** Adds one image card per path, fanned out diagonally from `at` (or the
+   *  viewport center) so a multi-image paste/import doesn't stack them. */
+  function addImageCards(paths: string[], at?: Point) {
+    if (paths.length === 0) return;
+    const origin = at ?? newCardOrigin();
+    const cards: CanvasCardData[] = paths.map((path, i) => ({
+      id: ulid(),
+      x: origin.x + i * IMAGE_STAGGER_PX,
+      y: origin.y + i * IMAGE_STAGGER_PX,
+      w: IMAGE_CARD_WIDTH,
+      h: DEFAULT_CARD_HEIGHT,
+      content: { type: 'image', path },
+    }));
+    updateDoc((d) => ({ ...d, cards: [...d.cards, ...cards] }));
+    setSelectedCardIds(new Set(cards.map((c) => c.id)));
+    setFocusedCardId(cards[cards.length - 1].id);
+  }
+
+  async function importImages(load: () => Promise<string[]>, at?: Point) {
+    try {
+      addImageCards(await load(), at);
+    } catch (error) {
+      console.error('failed to add image to canvas', error);
+    }
+  }
+
+  /** Copies the selected cards (and the arrows between them) to the app's card
+   *  clipboard. Returns false when there was nothing to copy. */
+  function copySelectionToClipboard(): boolean {
+    const current = docRef.current;
+    if (!current || selectedCardIds.size === 0) return false;
+    const cards = current.cards.filter((c) => selectedCardIds.has(c.id) && isCopyableCard(c));
+    if (cards.length === 0) return false;
+    copyToCardClipboard(cards, current.arrows);
+    return true;
+  }
+
+  function handleCopy(event: ClipboardEvent) {
+    if (isTypingTarget(event.target) || !copySelectionToClipboard()) return;
+    // The marker lets a later paste tell these cards from something copied since.
+    event.clipboardData?.setData('text/plain', CARD_CLIPBOARD_MARKER);
+    event.preventDefault();
+  }
+
+  /** Adds copies of `cards` (and their `arrows`) shifted by `offset`, selected. */
+  function addClonedCards(cards: readonly CanvasCardData[], arrows: readonly CanvasArrowData[], offset: Point) {
+    const cloned = cloneCards(cards, arrows, offset);
+    if (cloned.cards.length === 0) return;
+    updateDoc((d) => ({ ...d, cards: [...d.cards, ...cloned.cards], arrows: [...d.arrows, ...cloned.arrows] }));
+    setSelectedCardIds(new Set(cloned.cards.map((c) => c.id)));
+    setFocusedCardId(cloned.cards[0].id);
+  }
+
+  function handlePaste(event: ClipboardEvent) {
+    // Text pasted into a card's editor (or any input) is theirs to handle.
+    if (isTypingTarget(event.target)) return;
+    const files = imageFilesFrom(event.clipboardData);
+    if (files.length > 0) {
+      event.preventDefault();
+      void importImages(() => Promise.all(files.map((file) => saveImageFile(vaultRoot, file))));
+      return;
+    }
+    const clip = takeCardClipboard(event.clipboardData?.getData('text/plain') ?? '');
+    const bounds = clip && boundsOfCards(clip.cards);
+    if (!clip || !bounds) return;
+    event.preventDefault();
+    // Centered in the view; each further paste of the same copy steps aside.
+    const center = viewportCenterWorld();
+    const step = (clip.pasteIndex - 1) * DUPLICATE_OFFSET_PX;
+    addClonedCards(clip.cards, clip.arrows, {
+      x: center.x - (bounds.x + bounds.w / 2) + step,
+      y: center.y - (bounds.y + bounds.h / 2) + step,
+    });
+  }
+
+  /** Image files dragged in from the OS (Finder) and dropped on the board. */
+  function handleDrop(event: DragEvent<HTMLDivElement>) {
+    const files = imageFilesFrom(event.dataTransfer);
+    if (files.length === 0) return;
+    event.preventDefault();
+    const at = screenToWorld(event.clientX, event.clientY);
+    void importImages(() => Promise.all(files.map((file) => saveImageFile(vaultRoot, file))), at);
+  }
+
+  function handleUndo() {
+    if (optimizePass === null) history.undo();
+  }
+
+  function handleRedo() {
+    if (optimizePass === null) history.redo();
+  }
+
+  /** ⌘Z / ⇧⌘Z / ⌘C / ⌘D. Copy and paste normally arrive as clipboard events
+   *  (handled above); the ⌘C key path here covers the case where the native
+   *  Edit menu leaves the key to the page. */
+  function handleShortcut(event: KeyboardEvent) {
+    if (!(event.metaKey || event.ctrlKey) || event.altKey || isTypingTarget(event.target)) return;
+    if (event.code === 'KeyZ') {
+      event.preventDefault();
+      if (event.shiftKey) handleRedo();
+      else handleUndo();
+    } else if (event.code === 'KeyC') {
+      if (copySelectionToClipboard()) void navigator.clipboard?.writeText(CARD_CLIPBOARD_MARKER).catch(() => undefined);
+    } else if (event.code === 'KeyD') {
+      event.preventDefault();
+      handleDuplicate(selectedCardIds);
+    }
+  }
+
+  /** Top-left for a dragged-in note/PDF card so the pointer sits at its center. */
+  function dropOrigin(detail: CanvasDropDetail): Point {
+    const world = screenToWorld(detail.clientX, detail.clientY);
+    return { x: world.x - DEFAULT_CARD_WIDTH / 2, y: world.y - DEFAULT_CARD_HEIGHT / 2 };
+  }
+
+  /** A note or PDF dragged out of the sidebar or tab list, hovering over the board. */
+  function handleExternalDrag(detail: CanvasDragDetail) {
+    if (!detail || detail.isCanvas) {
+      setDropPreview(null);
+      return;
+    }
+    setDropPreview({ path: detail.path, isPdf: detail.isPdf, ...dropOrigin(detail) });
+  }
+
+  /** ...and released over it. */
+  function handleExternalDrop(detail: CanvasDropDetail) {
+    setDropPreview(null);
+    if (detail.isCanvas) return;
+    handleInsertNoteCard(detail.path, dropOrigin(detail), detail.isPdf ? 'pdf' : 'note');
+  }
+
+  // Window-level listeners, so they work wherever focus is on the page (a paste
+  // event targets the focused element, and clicking the board focuses nothing).
+  const windowHandlersRef = useRef({ handleCopy, handlePaste, handleShortcut, handleExternalDrag, handleExternalDrop });
+  windowHandlersRef.current = { handleCopy, handlePaste, handleShortcut, handleExternalDrag, handleExternalDrop };
+  useEffect(() => {
+    const onCopy = (event: ClipboardEvent) => windowHandlersRef.current.handleCopy(event);
+    const onPaste = (event: ClipboardEvent) => windowHandlersRef.current.handlePaste(event);
+    const onKeyDown = (event: KeyboardEvent) => windowHandlersRef.current.handleShortcut(event);
+    const onCanvasDrag = (event: Event) => windowHandlersRef.current.handleExternalDrag((event as CustomEvent<CanvasDragDetail>).detail);
+    const onCanvasDrop = (event: Event) => windowHandlersRef.current.handleExternalDrop((event as CustomEvent<CanvasDropDetail>).detail);
+    document.addEventListener('copy', onCopy);
+    document.addEventListener('paste', onPaste);
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener(CANVAS_DRAG_EVENT, onCanvasDrag);
+    window.addEventListener(CANVAS_DROP_EVENT, onCanvasDrop);
+    return () => {
+      document.removeEventListener('copy', onCopy);
+      document.removeEventListener('paste', onPaste);
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener(CANVAS_DRAG_EVENT, onCanvasDrag);
+      window.removeEventListener(CANVAS_DROP_EVENT, onCanvasDrop);
+    };
+  }, []);
+
+  function handleAddTextBlock(type: 'title' | 'sticky' | 'warning', at?: Point) {
+    const newCardId = ulid();
+    const origin = at ?? newCardOrigin();
+    updateDoc((d) => ({
+      ...d,
+      cards: [
+        ...d.cards,
+        { id: newCardId, x: origin.x, y: origin.y, w: DEFAULT_CARD_WIDTH, h: DEFAULT_CARD_HEIGHT, content: { type, text: '' } },
+      ],
+    }));
+    setFocusedCardId(newCardId);
+    setAutoFocusCardId(newCardId);
+    setEditingCardId(newCardId);
+  }
+
+  const viewFrameRef = useRef<number | null>(null);
+  useEffect(() => () => {
+    if (viewFrameRef.current !== null) cancelAnimationFrame(viewFrameRef.current);
+  }, []);
+
+  /** Eases the camera from where it is to `target` rather than jumping. */
+  function animateViewTo(target: ViewState) {
+    if (viewFrameRef.current !== null) cancelAnimationFrame(viewFrameRef.current);
+    const from: ViewState = { zoom: zoomRef.current, pan: panRef.current };
+    const startedAt = performance.now();
+    const step = (now: number) => {
+      const t = Math.min(1, (now - startedAt) / VIEW_ANIMATION_MS);
+      const eased = 1 - (1 - t) ** 3;
+      setZoom(from.zoom + (target.zoom - from.zoom) * eased);
+      setPan({
+        x: from.pan.x + (target.pan.x - from.pan.x) * eased,
+        y: from.pan.y + (target.pan.y - from.pan.y) * eased,
+      });
+      viewFrameRef.current = t < 1 ? requestAnimationFrame(step) : null;
+    };
+    viewFrameRef.current = requestAnimationFrame(step);
+  }
+
+  function viewportSize() {
+    const rect = viewportRef.current?.getBoundingClientRect();
+    return rect ? { w: rect.width, h: rect.height } : null;
+  }
+
+  /** "Reset view": the cards move (as one undoable step) so their center sits
+   *  at the middle of the default view, and the camera glides to that default
+   *  view (100%, no pan) — so the board ends up centered on screen, and
+   *  resetting again later keeps it centered. With no cards, only the camera resets. */
+  function handleResetView() {
+    animateViewTo({ zoom: 1, pan: { x: 0, y: 0 } });
+    const viewport = viewportSize();
+    const cards = docRef.current?.cards ?? [];
+    const bounds = boundsOfCards(cards);
+    if (!viewport || !bounds || optimizePass !== null) return;
+    const shift = shiftToDefaultViewCenter(bounds, viewport);
+    void animateCardsTo(new Map(cards.map((c) => [c.id, { x: c.x + shift.x, y: c.y + shift.y }])));
+  }
+
+  function fitCards(cards: readonly CanvasCardData[], maxZoom: number) {
+    const viewport = viewportSize();
+    const bounds = boundsOfCards(cards);
+    if (!viewport || !bounds) return;
+    animateViewTo(viewFittingRect(bounds, viewport, FIT_PADDING_PX, MIN_ZOOM, maxZoom, TOOLBAR_INSET_PX));
+  }
+
+  function handleFitAll() {
+    // Never zooms in past 1: this is for seeing everything, not enlarging a lone card.
+    fitCards(docRef.current?.cards ?? [], 1);
+  }
+
+  function handleFitSelection() {
+    fitCards((docRef.current?.cards ?? []).filter((c) => selectedCardIds.has(c.id)), MAX_ZOOM);
+  }
+
+  /** Glides cards to `targets` (top-left positions by card id) rather than
+   *  snapping, updating the doc every frame so arrows re-route in step.
+   *  Resolves once the glide has finished. */
+  function animateCardsTo(targets: ReadonlyMap<string, Point>, shouldRecordHistory = true): Promise<void> {
+    const current = docRef.current;
+    if (!current) return Promise.resolve();
+    // One undo step for the whole glide; its frames below are not steps.
+    if (shouldRecordHistory) history.record(current, 'push');
+    if (optimizeFrameRef.current !== null) cancelAnimationFrame(optimizeFrameRef.current);
+    const starts = new Map(current.cards.filter((c) => targets.has(c.id)).map((c) => [c.id, { x: c.x, y: c.y }]));
+    const startedAt = performance.now();
+    return new Promise((resolve) => {
+      const step = (now: number) => {
+        const t = Math.min(1, (now - startedAt) / OPTIMIZE_ANIMATION_MS);
+        const eased = 1 - (1 - t) ** 3;
+        updateDoc((d) => ({
+          ...d,
+          cards: d.cards.map((c) => {
+            const from = starts.get(c.id);
+            const to = targets.get(c.id);
+            return from && to ? { ...c, x: from.x + (to.x - from.x) * eased, y: from.y + (to.y - from.y) * eased } : c;
+          }),
+        }), 'skip');
+        if (t < 1 && !isUnmountedRef.current) {
+          optimizeFrameRef.current = requestAnimationFrame(step);
+          return;
+        }
+        optimizeFrameRef.current = null;
+        resolve();
+      };
+      optimizeFrameRef.current = requestAnimationFrame(step);
+    });
+  }
+
+  /** Re-lays out the board — only the selected cards when several are
+   *  selected, else all.
+   *  Runs `OPTIMIZE_PASSES` passes back to back, each animated and starting
+   *  from the last one's result, so the user watches the layout settle. */
+  async function handleOptimize() {
+    const start = docRef.current;
+    if (!start || start.cards.length < 2 || optimizePass !== null) return;
+    const movable = selectedCardIds.size > 1 ? new Set(selectedCardIds) : undefined;
+    // Labels are laid out as boxes of the size they're drawn at.
+    const layoutArrows = start.arrows.map((a) => {
+      const label = a.label ? layoutArrowLabel(a.label) : null;
+      return { fromCardId: a.fromCardId, toCardId: a.toCardId, label: label ? { w: label.width, h: label.height } : undefined };
+    });
+    // All four passes are a single undo step.
+    history.record(start, 'push');
+
+    for (let pass = 1; pass <= OPTIMIZE_PASSES; pass++) {
+      const current = docRef.current;
+      if (!current || isUnmountedRef.current) break;
+      setOptimizePass(pass);
+      await animateCardsTo(optimizeLayout(current.cards, layoutArrows, movable, pass === 1), false);
+    }
+    setOptimizePass(null);
+  }
+
+  /** Mirrors the selected cards (or the whole board) left-right or top-bottom. */
+  function handleFlip(axis: FlipAxis) {
+    const current = docRef.current;
+    if (!current || optimizePass !== null) return;
+    const scoped = selectedCardIds.size > 1 ? current.cards.filter((c) => selectedCardIds.has(c.id)) : current.cards;
+    void animateCardsTo(flipPositions(scoped, axis));
+  }
+
+  /** Saves the whole board (not just what's on screen) as a PNG. The save
+   *  dialog comes first so cancelling costs nothing; then selection and edit
+   *  state are cleared for the capture — so no selection outlines or open
+   *  editors end up in the picture — and put back afterwards. */
+  async function handleExportImage() {
+    const bounds = boundsOfCards(docRef.current?.cards ?? []);
+    const layer = worldLayerRef.current;
+    if (!bounds || !layer || isExporting) return;
+    setIsExporting(true);
+    const selectionBefore = selectedCardIds;
+    const focusBefore = focusedCardId;
+    try {
+      const target = await pickImageExportPath(path.split('/').pop() ?? 'canvas');
+      if (!target) return;
+      setSelectedCardIds(new Set());
+      setFocusedCardId(null);
+      setEditingCardId(null);
+      setLabelEdit(null);
+      await nextPaint();
+      await exportBoardAsImage(layer, vaultRoot, bounds, zoomRef.current, target);
+    } catch (error: unknown) {
+      console.error('canvas image export failed', error);
+      await message(`Could not export the image: ${error instanceof Error ? error.message : String(error)}`, {
+        title: 'Export failed',
+        kind: 'error',
+      });
+    } finally {
+      setSelectedCardIds(selectionBefore);
+      setFocusedCardId(focusBefore);
+      setIsExporting(false);
+    }
+  }
+
+  /** Turns the selected cards' arrangement (or the whole board's) one step: `1` clockwise, `-1` counterclockwise. */
+  function handleRotate(direction: 1 | -1) {
+    const current = docRef.current;
+    if (!current || optimizePass !== null) return;
+    const movable = selectedCardIds.size > 1 ? new Set(selectedCardIds) : undefined;
+    void animateCardsTo(rotatePositions(current.cards, direction * ROTATE_STEP_DEGREES, movable));
+  }
+
+  function handleDuplicate(ids: ReadonlySet<string>) {
+    const current = docRef.current;
+    if (!current) return;
+    const cards = current.cards.filter((c) => ids.has(c.id) && isCopyableCard(c));
+    addClonedCards(cards, current.arrows, { x: DUPLICATE_OFFSET_PX, y: DUPLICATE_OFFSET_PX });
+  }
+
+  /** Sets an arrow's label; empty removes it. */
+  function applyArrowLabel(arrowId: string, label: string) {
+    const arrow = docRef.current?.arrows.find((a) => a.id === arrowId);
+    if (!arrow || (arrow.label ?? '') === label) return;
+    updateDoc((d) => ({ ...d, arrows: d.arrows.map((a) => (a.id === arrowId ? { ...a, label: label || undefined } : a)) }));
+  }
+
+  function handleEditArrowLabel(arrowId: string) {
+    const arrow = docRef.current?.arrows.find((a) => a.id === arrowId);
+    const polyline = arrowRoutes.get(arrowId);
+    if (!arrow || !polyline) return;
+    const { labelPoint } = buildArrowPath(polyline, ARROW_CORNER_RADIUS, arrowHops.get(arrowId));
+    setLabelEdit({ arrowId, x: labelPoint.x, y: labelPoint.y, value: arrow.label ?? '' });
+  }
+
+  function commitArrowLabel() {
+    const edit = arrowLabelEditRef.current;
+    if (!edit) return;
+    setLabelEdit(null);
+    applyArrowLabel(edit.arrowId, edit.value.trim());
+  }
+
+  function handleRemoveArrows(ids: ReadonlySet<string>) {
+    updateDoc((d) => ({ ...d, arrows: d.arrows.filter((a) => !ids.has(a.fromCardId) && !ids.has(a.toCardId)) }));
+  }
+
+  /** Right-click: a card under the pointer gets the card menu (acting on the
+   *  whole selection when that card is part of a multi-selection — the card's
+   *  own pointerdown already selected it by now), bare background gets the
+   *  board menu. */
+  function handleContextMenu(event: ReactMouseEvent<HTMLDivElement>) {
+    event.preventDefault();
+    const current = docRef.current;
+    if (!current) return;
+    const arrowId = (event.target as Element).closest('[data-arrow-id]')?.getAttribute('data-arrow-id');
+    if (arrowId) {
+      menuIdRef.current += 1;
+      const items = buildArrowMenu({
+        hasLabel: Boolean(current.arrows.find((a) => a.id === arrowId)?.label),
+        onEditLabel: () => handleEditArrowLabel(arrowId),
+        onRemoveLabel: () => applyArrowLabel(arrowId, ''),
+        onDelete: () => updateDoc((d) => ({ ...d, arrows: d.arrows.filter((a) => a.id !== arrowId) })),
+      });
+      setMenu({ id: menuIdRef.current, x: event.clientX, y: event.clientY, items });
+      return;
+    }
+    const cardId = (event.target as Element).closest('[data-canvas-card-id]')?.getAttribute('data-canvas-card-id');
+    const card = cardId ? current.cards.find((c) => c.id === cardId) : undefined;
+    const world = screenToWorld(event.clientX, event.clientY);
+
+    let items: ContextMenuItem[];
+    if (card) {
+      const targetIds: ReadonlySet<string> = selectedCardIds.has(card.id) ? selectedCardIds : new Set([card.id]);
+      items = buildCardMenu({
+        card,
+        targetCount: targetIds.size,
+        canDuplicate: current.cards.some((c) => targetIds.has(c.id) && isCopyableCard(c)),
+        arrowCount: current.arrows.filter((a) => targetIds.has(a.fromCardId) || targetIds.has(a.toCardId)).length,
+        onOpenNote: () => (card.content.type === 'note' || card.content.type === 'pdf') && onNavigate(card.content.path),
+        onPromote: () => void handlePromote(card.id),
+        onDuplicate: () => handleDuplicate(targetIds),
+        onRemoveArrows: () => handleRemoveArrows(targetIds),
+        onDelete: () => deleteCards(targetIds),
+      });
+    } else {
+      items = buildBackgroundMenu({
+        hasCards: current.cards.length > 0,
+        onNewCard: () => handleAddCard(world),
+        onAddImage: () => void importImages(() => pickAndCopyImages(vaultRoot), world),
+        onExportImage: () => void handleExportImage(),
+        onAddTitle: () => handleAddTextBlock('title', world),
+        onAddSticky: () => handleAddTextBlock('sticky', world),
+        onAddWarning: () => handleAddTextBlock('warning', world),
+        onAddPdf: () => {
+          setNotePickerKind('pdf');
+          notePickerDropRef.current = world;
+          setNotePickerAnchor({ x: event.clientX, y: event.clientY });
+        },
+        onAddNote: () => {
+          setNotePickerKind('note');
+          notePickerDropRef.current = world;
+          setNotePickerAnchor({ x: event.clientX, y: event.clientY });
+        },
+        onSelectAll: () => {
+          setSelectedCardIds(new Set(current.cards.map((c) => c.id)));
+          setFocusedCardId(current.cards[0]?.id ?? null);
+        },
+        onResetView: handleResetView,
+      });
+    }
+    menuIdRef.current += 1;
+    setMenu({ id: menuIdRef.current, x: event.clientX, y: event.clientY, items });
   }
 
   if (loadError) {
@@ -572,47 +1222,22 @@ export function CanvasView({ path, vaultRoot, onNavigate, onSynced }: CanvasView
     );
   }
 
+  const arrowColor = doc.arrowColor ?? ARROW_COLOR;
   const cardsById = new Map(doc.cards.map((card) => [card.id, card]));
   const fromCardForDraft = arrowDraft ? cardsById.get(arrowDraft.fromCardId) : null;
-  // Same orthogonal router CanvasArrow.tsx's routes use for a committed
-  // arrow, aimed at a zero-size box under the cursor — keeps the
-  // in-progress dashed preview exiting from the same boundary point (and
-  // elbow shape) the real arrow will land on once it's dropped onto a
-  // target card. No hop bumps against committed arrows: a transient,
-  // single in-flight preview crossing a real arrow isn't worth the extra
-  // crossing-detection pass for how briefly it's visible.
+  // The in-progress dashed preview: a straight line from the source card's
+  // edge to the cursor. Not routed around other cards — it's transient, and a
+  // line to wherever the pointer is should follow the pointer exactly.
   const draftArrowRoute =
     arrowDraft && fromCardForDraft
       ? buildArrowPath(
-          computeArrowPolyline(fromCardForDraft, { x: arrowDraft.x, y: arrowDraft.y, w: 0, h: 0 }, 0),
+          [
+            exitPoint(fromCardForDraft, { x: fromCardForDraft.x + fromCardForDraft.w / 2, y: fromCardForDraft.y + fromCardForDraft.h / 2 }, arrowDraft),
+            { x: arrowDraft.x, y: arrowDraft.y },
+          ],
           ARROW_CORNER_RADIUS,
-          [],
         )
       : null;
-
-  // Three passes, each needing every arrow's info from the previous one
-  // before any single arrow's final path can be built: (1) each arrow's
-  // natural, unoffset crossbar shape, so (2) `assignArrowLanes` can find
-  // which arrows would otherwise run parallel through the same corridor and
-  // space them apart deterministically, before (3) `findArrowCrossings`
-  // checks the (now laned) polylines for genuine perpendicular crossings.
-  const baseShapes = new Map<string, CrossbarShape>();
-  for (const arrow of doc.arrows) {
-    const fromCard = cardsById.get(arrow.fromCardId);
-    const toCard = cardsById.get(arrow.toCardId);
-    if (!fromCard || !toCard) continue;
-    baseShapes.set(arrow.id, crossbarShape(computeArrowPolyline(fromCard, toCard, 0)));
-  }
-  const laneOffsets = assignArrowLanes(baseShapes);
-
-  const arrowPolylines = new Map<string, Point[]>();
-  for (const arrow of doc.arrows) {
-    const fromCard = cardsById.get(arrow.fromCardId);
-    const toCard = cardsById.get(arrow.toCardId);
-    if (!fromCard || !toCard) continue;
-    arrowPolylines.set(arrow.id, computeArrowPolyline(fromCard, toCard, laneOffsets.get(arrow.id) ?? 0));
-  }
-  const hopsByArrowId = findArrowCrossings(arrowPolylines);
 
   return (
     <div
@@ -621,27 +1246,32 @@ export function CanvasView({ path, vaultRoot, onNavigate, onSynced }: CanvasView
       // order, which this board's own Tab+direction chord already repurposes)
       // — see `focusCard`'s doc comment above for why it needs to be.
       tabIndex={-1}
+      data-drop-id={CANVAS_DROP_ID}
       className="relative h-full w-full touch-none select-none overflow-hidden outline-none"
       onWheel={handleWheel}
+      onDragOver={(event) => event.preventDefault()}
+      onDrop={handleDrop}
+      onContextMenu={handleContextMenu}
       onPointerDown={handleBackgroundPointerDown}
       onPointerMove={handleBackgroundPointerMove}
       onPointerUp={handleBackgroundPointerUp}
       onPointerLeave={handleBackgroundPointerUp}
     >
       <div
+        ref={worldLayerRef}
         className="absolute left-0 top-0"
         style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: '0 0' }}
       >
         <svg className="pointer-events-none absolute left-0 top-0 overflow-visible" width={0} height={0}>
-          <CanvasArrowDefs />
+          <CanvasArrowDefs color={arrowColor} />
           {doc.arrows.map((arrow) => {
-            const polyline = arrowPolylines.get(arrow.id);
+            const polyline = arrowRoutes.get(arrow.id);
             if (!polyline) return null;
-            const route = buildArrowPath(polyline, ARROW_CORNER_RADIUS, hopsByArrowId.get(arrow.id) ?? []);
-            return <CanvasArrow key={arrow.id} route={route} label={arrow.label} />;
+            const route = buildArrowPath(polyline, ARROW_CORNER_RADIUS, arrowHops.get(arrow.id));
+            return <CanvasArrow key={arrow.id} arrowId={arrow.id} color={arrowColor} route={route} label={arrow.label} onEditLabel={handleEditArrowLabel} />;
           })}
           {draftArrowRoute && (
-            <path d={draftArrowRoute.path} fill="none" stroke="var(--fg-faint)" strokeWidth={2} strokeDasharray="4 4" />
+            <path d={draftArrowRoute.path} fill="none" stroke={arrowColor} strokeWidth={ARROW_STROKE_PX} strokeDasharray="4 4" />
           )}
         </svg>
         {doc.cards.map((card) => (
@@ -651,18 +1281,41 @@ export function CanvasView({ path, vaultRoot, onNavigate, onSynced }: CanvasView
             vaultRoot={vaultRoot}
             zoom={zoom}
             isSelected={selectedCardIds.has(card.id)}
+            isEditing={card.id === editingCardId}
             onNavigate={onNavigate}
             onChangeBody={handleChangeBody}
+            onResizeImage={handleResizeImage}
+            onChangeCaption={handleChangeCaption}
             onMoveBy={handleMoveBy}
-            onResize={handleResize}
+            onAutoSize={handleAutoSize}
             onPromote={(cardId) => void handlePromote(cardId)}
             onDelete={handleDelete}
             onFocus={handleCardPointerDown}
             onDragEnd={handleCardDragEnd}
             onStartArrow={handleStartArrow}
+            isLinking={isMetaHeld}
             autoFocus={card.id === autoFocusCardId}
           />
         ))}
+        {dropPreview && <DropPreviewCard {...dropPreview} />}
+        {arrowLabelEdit && (
+          <input
+            autoFocus
+            value={arrowLabelEdit.value}
+            onFocus={(event) => event.target.select()}
+            onChange={(event) => setLabelEdit({ ...arrowLabelEdit, value: event.target.value })}
+            onKeyDown={(event) => {
+              event.stopPropagation();
+              if (event.key === 'Enter') commitArrowLabel();
+              if (event.key === 'Escape') setLabelEdit(null);
+            }}
+            onBlur={commitArrowLabel}
+            onPointerDown={(event) => event.stopPropagation()}
+            placeholder="label…"
+            className="absolute border border-border-strong bg-bg px-1.5 py-0.5 text-center text-fg-prominent outline-none"
+            style={{ left: arrowLabelEdit.x - ARROW_LABEL_INPUT_WIDTH / 2, top: arrowLabelEdit.y - 26, width: ARROW_LABEL_INPUT_WIDTH, fontSize: '0.75rem' }}
+          />
+        )}
         {titlePrompt && (
           <input
             autoFocus
@@ -700,45 +1353,57 @@ export function CanvasView({ path, vaultRoot, onNavigate, onSynced }: CanvasView
         <span className="text-fg-faint tracking-label uppercase" style={{ fontSize: '0.68rem' }}>
           [canvas]
         </span>
-        <button
-          type="button"
-          onClick={handleAddCard}
-          className="pointer-events-auto text-fg-faint transition-colors duration-panel ease-panel hover:text-fg-prominent"
-          style={{ fontSize: '0.68rem' }}
-        >
-          [+ card]
-        </button>
-        <button
-          type="button"
-          ref={addNoteButtonRef}
-          onClick={handleOpenNotePicker}
-          className="pointer-events-auto text-fg-faint transition-colors duration-panel ease-panel hover:text-fg-prominent"
-          style={{ fontSize: '0.68rem' }}
-        >
-          [+ note]
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            setZoom(1);
-            setPan({ x: 0, y: 0 });
-          }}
-          className="pointer-events-auto text-fg-faint transition-colors duration-panel ease-panel hover:text-fg-prominent"
-          style={{ fontSize: '0.68rem' }}
-        >
-          [reset view]
-        </button>
       </div>
       {notePickerAnchor && (
         <NotePickerPopover
           vaultRoot={vaultRoot}
+          kind={notePickerKind}
           x={notePickerAnchor.x}
           y={notePickerAnchor.y}
           onSelect={(path) => {
-            handleInsertNoteCard(path);
+            handleInsertNoteCard(path, notePickerDropRef.current, notePickerKind);
             setNotePickerAnchor(null);
           }}
           onClose={() => setNotePickerAnchor(null)}
+        />
+      )}
+      <div className="pointer-events-none absolute inset-x-0 bottom-3 flex items-stretch justify-center gap-3">
+        <EditToolbar canUndo={history.canUndo && optimizePass === null} canRedo={history.canRedo && optimizePass === null} onUndo={handleUndo} onRedo={handleRedo} />
+        <NewToolbar
+          onAddText={() => handleAddCard()}
+          onAddTitle={() => handleAddTextBlock('title')}
+          onAddSticky={() => handleAddTextBlock('sticky')}
+          onAddWarning={() => handleAddTextBlock('warning')}
+          onPickNote={(anchor) => handleOpenPicker('note', anchor)}
+          onPickPdf={(anchor) => handleOpenPicker('pdf', anchor)}
+          onAddImage={() => void importImages(() => pickAndCopyImages(vaultRoot))}
+        />
+        <ViewToolbar
+          onResetView={handleResetView}
+          onFitAll={handleFitAll}
+          onFitSelection={handleFitSelection}
+          hasCards={doc.cards.length > 0}
+          hasSelection={selectedCardIds.size > 0}
+        />
+        <LayoutToolbar
+          isSelectionScoped={selectedCardIds.size > 1}
+          optimizePass={optimizePass}
+          onOptimize={() => void handleOptimize()}
+          onFlip={handleFlip}
+          onRotate={handleRotate}
+        />
+        <ExportToolbar isDisabled={isExporting || doc.cards.length === 0} onExportImage={() => void handleExportImage()} />
+        <ToolbarShell>
+          <ArrowColorPicker color={arrowColor} onChange={(color) => updateDoc((d) => ({ ...d, arrowColor: color }))} />
+        </ToolbarShell>
+      </div>
+      {menu && (
+        <ContextMenu
+          key={menu.id}
+          x={menu.x}
+          y={menu.y}
+          items={menu.items}
+          onClose={() => setMenu((open) => (open?.id === menu.id ? null : open))}
         />
       )}
     </div>

@@ -17,6 +17,10 @@ interface CardTextEditorProps {
   onNavigate: (path: string) => void;
   readOnly: boolean;
   autoFocus?: boolean;
+  /** False makes the whole editor inert — unfocusable, unselectable, and
+   *  transparent to the pointer — so the card around it (not its text) takes
+   *  every click and drag. Flipping to true focuses the editor. */
+  isEditable: boolean;
 }
 
 /** A card's inline markdown mini-editor — deliberately not the full
@@ -25,8 +29,9 @@ interface CardTextEditorProps {
  *  Only pulls in wikilink rendering (`createLinkChipPlugin`) and `[[`
  *  autocomplete (`createWikilinkAutocomplete`), both self-contained enough
  *  to not need the rest of the bundle around them. */
-export function CardTextEditor({ vaultRoot, value, onChange, onNavigate, readOnly, autoFocus }: CardTextEditorProps) {
+export function CardTextEditor({ vaultRoot, value, onChange, onNavigate, readOnly, autoFocus, isEditable }: CardTextEditorProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const viewRef = useRef<EditorView | null>(null);
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
 
@@ -54,32 +59,54 @@ export function CardTextEditor({ vaultRoot, value, onChange, onNavigate, readOnl
           if (update.docChanged) onChangeRef.current(update.state.doc.toString());
         }),
         EditorView.theme({
-          '&': { fontSize: '0.82rem', height: '100%' },
-          '.cm-scroller': { fontFamily: 'var(--font-family)', overflow: 'auto' },
-          '.cm-content': { padding: '6px 8px', caretColor: 'var(--accent-caret)' },
+          '&': { fontSize: '0.82rem' },
+          // Never scroll: the card sizes itself to the text, and letting the
+          // scroller show bars (as the cursor/selection layers briefly
+          // overflow it on focus) makes the card jump taller for a moment.
+          '.cm-scroller': { fontFamily: 'var(--font-family)', overflow: 'hidden' },
+          // Symmetric padding, and CodeMirror's own lopsided per-line inset
+          // (0 2px 0 6px) zeroed — otherwise text sits off-center in the card.
+          '.cm-content': { padding: '18px 22px', caretColor: 'var(--accent-caret)' },
+          '.cm-line': { padding: '0' },
           '.cm-cursor, .cm-dropCursor': { borderLeftColor: 'var(--accent-caret)', borderLeftWidth: '1.5px' },
         }),
       ],
     });
 
     const view = new EditorView({ state, parent: container });
+    viewRef.current = view;
     if (autoFocus) view.focus();
 
-    return () => view.destroy();
+    return () => {
+      view.destroy();
+      viewRef.current = null;
+    };
     // Intentionally excludes `value`/`autoFocus`/`onNavigate` — see the
     // mount-once doc comment above; only vaultRoot/readOnly changing
     // warrants a fresh instance.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [vaultRoot, readOnly]);
 
+  // Entering edit mode (a click on the card) hands the caret to the editor,
+  // at the end of the text. Runs after the render that clears `inert`.
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!isEditable || !view) return;
+    view.focus();
+    view.dispatch({ selection: { anchor: view.state.doc.length } });
+  }, [isEditable]);
+
   return (
     <div
       ref={containerRef}
-      className="h-full w-full"
+      inert={!isEditable}
+      className="w-full"
       // A drag started here must not also start the card's own drag (its
       // handler lives on the card's header bar, not the body) — CodeMirror
       // needs ordinary pointer events for text selection/cursor placement.
-      onPointerDown={(event) => event.stopPropagation()}
+      onPointerDown={(event) => {
+        if (isEditable) event.stopPropagation();
+      }}
     />
   );
 }

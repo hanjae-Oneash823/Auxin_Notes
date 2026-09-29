@@ -6,7 +6,7 @@ use commands::app_config::{get_app_config, set_app_config};
 use commands::popup_panel::{hide_popup_panel, show_popup_panel};
 use commands::fs_ops::{
     allow_vault_asset_access, copy_image_file, delete_folder, delete_note, ensure_dir, existing_paths, import_file,
-    move_folder, read_note, rename_note, save_image_data, write_note,
+    move_folder, read_file_base64, read_note, rename_note, save_image_data, write_binary_file, write_note,
 };
 use commands::terminal::{terminal_kill, terminal_resize, terminal_spawn, terminal_status, terminal_stop, terminal_write, TerminalState};
 use commands::vault_scan::{list_vault_files, list_vault_folders};
@@ -95,6 +95,8 @@ pub fn run() {
             move_folder,
             allow_vault_asset_access,
             save_image_data,
+            write_binary_file,
+            read_file_base64,
             copy_image_file,
             import_file,
             list_vault_files,
