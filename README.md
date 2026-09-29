@@ -4,6 +4,8 @@
 
 A markdown note-taking app for a local vault of plain-text files. Built with Tauri, React, and SQLite.
 
+A markdown vault treated like a browser, not a filing cabinet — tabs and workspaces instead of folder-diving, plain files instead of lock-in, and a terminal built in for working alongside CLI agents.
+
 ![Home dashboard](docs/screenshots/home-dashboard.png)
 
 ## Features
