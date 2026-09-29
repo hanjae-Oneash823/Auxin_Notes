@@ -11,6 +11,8 @@ export interface NoteSummary {
   isHub: boolean;
   /** Path ends in `.axcanvas` — see parseCanvas.ts. Mutually exclusive with `isHub`. */
   isCanvas: boolean;
+  /** A `.pdf` file, listed from disk rather than the index (see pdf/pdfFiles.ts). */
+  isPdf: boolean;
 }
 
 export interface ListNotesOptions {
@@ -37,6 +39,7 @@ function toSummary(row: NoteRow): NoteSummary {
     needsAttention: row.needs_attention === 1,
     isHub: row.is_hub === 1,
     isCanvas: row.is_canvas === 1,
+    isPdf: false,
   };
 }
 

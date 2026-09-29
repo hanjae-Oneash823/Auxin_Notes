@@ -101,6 +101,8 @@ function parseCanvasNote(raw: string, path: string): ParsedNote {
  * can fail to parse.
  */
 export async function syncFile(vaultRoot: string, absolutePath: string): Promise<void> {
+  // PDFs are tracked by the watcher but never indexed (pdf/pdfFiles.ts lists them from disk).
+  if (absolutePath.endsWith('.pdf')) return;
   const db = await getDb(vaultRoot);
   const raw = await readNoteOrNull(absolutePath);
   if (raw === null) return;

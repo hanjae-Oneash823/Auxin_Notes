@@ -153,6 +153,21 @@ pub fn copy_image_file(vault_root: String, source_path: String) -> Result<String
     Ok(format!("{ATTACHMENTS_DIR_NAME}/{saved_name}"))
 }
 
+/// Copies a file already on disk (chosen via the file picker) into a vault
+/// folder, keeping its name unless taken. Returns the new absolute path.
+#[tauri::command]
+pub fn import_file(dest_dir: String, source_path: String) -> Result<String, String> {
+    let dir = PathBuf::from(&dest_dir);
+    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let file_name = Path::new(&source_path)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .ok_or_else(|| format!("\"{source_path}\" has no file name"))?;
+    let target = unique_path_in(&dir, file_name);
+    fs::copy(&source_path, &target).map_err(|e| e.to_string())?;
+    Ok(target.to_string_lossy().to_string())
+}
+
 /// Grants the asset protocol runtime access to a vault's directory tree, so
 /// `convertFileSrc` can stream an image file straight to the webview instead
 /// of round-tripping it through a command as a base64 `data:` URL (the

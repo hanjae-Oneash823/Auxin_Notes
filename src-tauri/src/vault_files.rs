@@ -5,7 +5,7 @@ use std::path::Path;
 /// `.auxin/` index, dotfiles, etc.) is invisible to the app's file list,
 /// folder tree, and reconciliation pass. Kept as one shared list so the two
 /// independent filters can't drift out of sync with each other.
-const VAULT_FILE_EXTENSIONS: &[&str] = &["md", "axcanvas"];
+const VAULT_FILE_EXTENSIONS: &[&str] = &["md", "axcanvas", "pdf"];
 
 pub fn is_vault_file(path: &Path) -> bool {
     path.extension()

@@ -1,4 +1,4 @@
-import { Stack } from '@phosphor-icons/react';
+import { FilePdf, Stack } from '@phosphor-icons/react';
 import type { NoteSummary } from '../db/queries/notes';
 
 interface NoteListItemProps {
@@ -52,6 +52,7 @@ export function NoteListItem({
       }`}
       style={{ fontSize: '0.85rem' }}
     >
+      {note.isPdf && <FilePdf size={12} weight="regular" className="shrink-0 text-accent-link-broken" />}
       {note.isCanvas && <Stack size={12} weight="regular" className="shrink-0" />}
       <span className="truncate">{note.title}</span>
     </button>

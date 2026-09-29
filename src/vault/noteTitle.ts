@@ -1,11 +1,11 @@
 /** A note's title is just its filename — derived directly from its path
  *  rather than read from the file, so it's always in sync with what's
  *  actually on disk with no extra round trip. Strips whichever tracked
- *  extension the path ends in (`.md` or `.axcanvas` — see `vault_files.rs`
+ *  extension the path ends in (`.md`, `.axcanvas` or `.pdf` — see `vault_files.rs`
  *  for the Rust-side counterpart of this list). */
 export function titleFromPath(path: string): string {
   const fileName = path.split('/').pop() ?? path;
-  return fileName.replace(/\.(md|axcanvas)$/, '');
+  return fileName.replace(/\.(md|axcanvas|pdf)$/, '');
 }
 
 /** A path's containing folder ('' for the vault root or a top-level file). */

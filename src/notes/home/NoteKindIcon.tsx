@@ -1,8 +1,9 @@
-import { FileText, SquaresFour, Stack } from '@phosphor-icons/react';
+import { FilePdf, FileText, SquaresFour, Stack } from '@phosphor-icons/react';
 
 interface NoteKindIconProps {
   isHub: boolean;
   isCanvas: boolean;
+  isPdf?: boolean;
   size?: number;
   className?: string;
 }
@@ -11,7 +12,7 @@ interface NoteKindIconProps {
  *  canvas → Stack, plain note → FileText) — so a hub or canvas doesn't look
  *  like an ordinary note on the dashboard. Inherits its color from the
  *  parent, like the tab cards' icons. */
-export function NoteKindIcon({ isHub, isCanvas, size = 13, className = '' }: NoteKindIconProps) {
-  const Icon = isHub ? SquaresFour : isCanvas ? Stack : FileText;
-  return <Icon size={size} className={`shrink-0 ${className}`} />;
+export function NoteKindIcon({ isHub, isCanvas, isPdf = false, size = 13, className = '' }: NoteKindIconProps) {
+  const Icon = isPdf ? FilePdf : isHub ? SquaresFour : isCanvas ? Stack : FileText;
+  return <Icon size={size} className={`shrink-0 ${isPdf ? 'text-accent-link-broken' : ''} ${className}`} />;
 }
