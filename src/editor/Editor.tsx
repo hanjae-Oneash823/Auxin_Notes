@@ -14,6 +14,8 @@ import { extractHeadings } from './tocExtract';
 import { useTocStore } from './tocStore';
 import { titleFromPath } from '../vault/noteTitle';
 import { useVaultStore } from '../vault/vaultStore';
+import { toRelativePath } from '../vault/syncEngine';
+import { logUsageEvent } from '../db/usageEvents';
 
 const AUTOSAVE_DELAY_MS = 500;
 
@@ -106,6 +108,10 @@ export function Editor({ path, vaultRoot, onNavigate, onRenameTitle, readOnly }:
   // (e.g. `claude` run from the in-app terminal) wrote this file out from
   // under us" — only the latter should ever reload the live buffer.
   const lastSyncedContentRef = useRef<string>('');
+  // Set once a real doc change schedules a save this mount — read only in
+  // the mount effect's own cleanup, to log at most one usage 'edit' event
+  // per editing session rather than one per (debounced) autosave tick.
+  const editOccurredRef = useRef(false);
   const currentTitle = titleFromPath(path);
   // Re-initialized fresh on every genuine note switch — App.tsx remounts
   // this whole component (key={activePath}) whenever `path` changes,
@@ -193,6 +199,7 @@ export function Editor({ path, vaultRoot, onNavigate, onRenameTitle, readOnly }:
     let cancelled = false;
 
     function scheduleSave(view: EditorView) {
+      editOccurredRef.current = true;
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
       saveTimeoutRef.current = setTimeout(() => {
         saveTimeoutRef.current = null;
@@ -300,6 +307,14 @@ export function Editor({ path, vaultRoot, onNavigate, onRenameTitle, readOnly }:
       viewRef.current?.destroy();
       viewRef.current = null;
       useTocStore.getState().setHeadings([]);
+
+      if (editOccurredRef.current) {
+        void logUsageEvent(vaultRoot, {
+          type: 'edit',
+          path: toRelativePath(vaultRoot, path),
+          title: titleFromPath(path),
+        }).catch((error: unknown) => console.error('[usage] failed to log event', error));
+      }
     };
   }, [path, vaultRoot, readOnly]);
 

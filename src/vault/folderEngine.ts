@@ -2,10 +2,11 @@ import { invoke } from '@tauri-apps/api/core';
 import type { NoteSummary } from '../db/queries/notes';
 import { getFolderHub } from '../db/queries/hub';
 import { getDb } from '../db/client';
+import { logUsageEvent } from '../db/usageEvents';
 import { getEditorView } from '../editor/editorRegistry';
 import { reconcileVault } from './reconcile';
 import { relinkCanvasNotePath, renameNote } from './renameEngine';
-import { syncFile } from './syncEngine';
+import { syncFileAsRename } from './syncEngine';
 
 /**
  * Moves a note into `targetFolderPath` (vault-relative, `''` for the vault
@@ -41,7 +42,14 @@ export async function moveNoteToFolder(
   }
 
   await invoke('rename_note', { oldPath: oldAbsolutePath, newPath: newAbsolutePath });
-  await syncFile(vaultRoot, newAbsolutePath);
+  // syncFileAsRename, not plain syncFile: the id is already known (it's this
+  // same note, just at a new path), so this updates the existing row in
+  // place instead of syncFile's hash-guessing path — which can only detect
+  // a rename via a tombstoned row at the old path, and nothing here ever
+  // tombstones it. Using plain syncFile left the old row (still
+  // `is_deleted = 0`) untouched while minting a second row for the new
+  // path, showing up as two copies of the same note in the file tree.
+  await syncFileAsRename(vaultRoot, newAbsolutePath, note.id);
   await relinkCanvasNotePath(vaultRoot, note.id, note.path, newRelativePath);
   return newRelativePath;
 }
@@ -113,6 +121,26 @@ export async function createFolder(vaultRoot: string, relativePath: string): Pro
   await invoke('ensure_dir', { path: `${vaultRoot}/${relativePath}` });
 }
 
+/** "New Folder", falling back to "New Folder 2", "New Folder 3", ... on a
+ *  collision with an existing sibling directly under `parentPath` (root, for
+ *  `''`) — used by any "new folder here" action (FolderTree's right-click
+ *  menu, TabBar's group-header button) so a folder created that way never
+ *  collides with one already there. */
+export function uniqueFolderName(folderPaths: string[], parentPath: string): string {
+  const siblingNames = new Set(
+    folderPaths
+      .filter((path) => {
+        const parent = path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '';
+        return parent === parentPath;
+      })
+      .map((path) => path.split('/').pop() ?? path),
+  );
+  if (!siblingNames.has('New Folder')) return 'New Folder';
+  let suffix = 2;
+  while (siblingNames.has(`New Folder ${suffix}`)) suffix++;
+  return `New Folder ${suffix}`;
+}
+
 /**
  * Permanently deletes `folderPath` and everything inside it. Irreversible —
  * callers confirm with the user first. Like `renameOrMoveFolder`, this is a
@@ -122,6 +150,22 @@ export async function createFolder(vaultRoot: string, relativePath: string): Pro
  * way it would for any other externally-deleted file.
  */
 export async function deleteFolder(vaultRoot: string, folderPath: string): Promise<void> {
+  const db = await getDb(vaultRoot);
+  const [{ note_count: noteCount }] = await db.select<{ note_count: number }[]>(
+    `SELECT COUNT(*) AS note_count FROM notes WHERE is_deleted = 0 AND (path = ? OR path LIKE ? || '/%')`,
+    [folderPath, folderPath],
+  );
+
   await invoke('delete_folder', { path: `${vaultRoot}/${folderPath}` });
   await reconcileVault(vaultRoot);
+
+  // One aggregate event for the whole folder, not one per note inside it —
+  // reconcileVault tombstones those notes itself (its own inline UPDATE, not
+  // syncRemoved), so nothing else would log this deletion at all otherwise.
+  void logUsageEvent(vaultRoot, {
+    type: 'delete_folder',
+    path: folderPath,
+    title: folderPath,
+    detail: { noteCount },
+  }).catch((error: unknown) => console.error('[usage] failed to log event', error));
 }

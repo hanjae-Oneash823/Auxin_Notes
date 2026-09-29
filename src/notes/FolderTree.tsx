@@ -7,7 +7,10 @@ import { getDb } from '../db/client';
 import type { NoteSummary } from '../db/queries/notes';
 import { getCollapsedFolders, setCollapsedFolders } from '../db/queries/folderState';
 import { buildFolderTree, flattenTree, type FolderNode, type TreeRow } from '../vault/folderTree';
+import { uniqueFolderName } from '../vault/folderEngine';
 import { ContextMenu } from '../layout/ContextMenu';
+import { CountBadge } from '../layout/CountBadge';
+import { flyCardToTab } from '../layout/flyToTab';
 
 type RowContextMenu =
   | { kind: 'note'; note: NoteSummary; x: number; y: number }
@@ -99,24 +102,6 @@ function withoutPath(paths: Set<string>, path: string): Set<string> {
   return next;
 }
 
-/** "New Folder", falling back to "New Folder 2", "New Folder 3", ... on a
- *  collision with an existing sibling directly under `parentPath` (root, for
- *  `''`) — used by `handleNewFolderHere` so a folder created via right-click
- *  never collides with one already there. */
-function uniqueFolderName(folderPaths: string[], parentPath: string): string {
-  const siblingNames = new Set(
-    folderPaths
-      .filter((path) => {
-        const parent = path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '';
-        return parent === parentPath;
-      })
-      .map((path) => path.split('/').pop() ?? path),
-  );
-  if (!siblingNames.has('New Folder')) return 'New Folder';
-  let suffix = 2;
-  while (siblingNames.has(`New Folder ${suffix}`)) suffix++;
-  return `New Folder ${suffix}`;
-}
 
 /**
  * Sidebar note list, grown from a flat virtualized list into a collapsible
@@ -367,6 +352,13 @@ export function FolderTree({
     window.addEventListener('mouseup', handleMouseUp);
   }
 
+  /** Opens a note and flies the clicked row into its sidebar tab — the
+   *  animation must start first, while `source` still exists. */
+  function openNote(path: string, source: Element) {
+    flyCardToTab(source, `${vaultRoot}/${path}`);
+    onSelect(path);
+  }
+
   function guardedClick(handler: () => void) {
     if (suppressClickRef.current) {
       suppressClickRef.current = false;
@@ -447,14 +439,7 @@ export function FolderTree({
             <FolderOpen size={12} weight="regular" className="shrink-0" />
           )}
           <span className="flex-1 truncate">{node.name}</span>
-          {node.noteCount > 0 && (
-            <span
-              className="mr-1 shrink-0 text-fg-faint"
-              style={{ fontSize: '0.72rem' }}
-            >
-              {node.noteCount}
-            </span>
-          )}
+          {node.noteCount > 0 && <CountBadge count={node.noteCount} size="sm" className="mr-1" />}
         </div>
       );
     }
@@ -483,7 +468,7 @@ export function FolderTree({
         >
           <button
             type="button"
-            onClick={() => onSelect(row.note.path)}
+            onClick={(event) => openNote(row.note.path, event.currentTarget)}
             className={`flex w-full items-center gap-1.5 truncate rounded-row py-0.5 pl-1.5 text-left transition-colors duration-panel ease-panel ${
               activePath === row.note.path ? 'bg-border-default text-fg' : 'text-accent-link hover:bg-border-subtle'
             }`}
@@ -528,7 +513,7 @@ export function FolderTree({
           isActive={activePath === note.path}
           isRenaming={renamingNoteId === note.id}
           renameValue={renameValue}
-          onSelect={() => onSelect(note.path)}
+          onSelect={(source) => openNote(note.path, source)}
           onStartRename={() => onStartRename(note)}
           onRenameChange={onRenameChange}
           onRenameCommit={() => onRenameCommit(note)}
@@ -547,7 +532,10 @@ export function FolderTree({
           event.preventDefault();
           setRowContextMenu({ kind: 'empty', x: event.clientX, y: event.clientY });
         }}
-        className="min-h-0 flex-1 overflow-y-auto"
+        // -mr-3.5 runs the scroll container out to the panel's edge (packet's
+        // px-1.5 + panel's px-2) so the scrollbar sits flush; pr-2.5 pads the
+        // rows back to match the tab list in the left sidebar.
+        className="sidebar-scroll -mr-3.5 min-h-0 flex-1 overflow-y-auto pr-2.5"
       >
         {rows.length === 0 ? (
           <span className="px-1 text-fg-faint" style={{ fontSize: '0.75rem' }}>

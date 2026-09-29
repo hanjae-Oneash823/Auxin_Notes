@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
-import { Window } from '@tauri-apps/api/window';
 import { register, unregister } from '@tauri-apps/plugin-global-shortcut';
+import { showPopupPanel } from '../popup/popupPanel';
 
 /** Hardcoded for v1 — no rebind UI yet (see plan). Deliberately "Cmd+Ctrl"
  *  (both held) rather than "CommandOrControl" (the cross-platform either/or
@@ -12,10 +12,10 @@ const CAPTURE_SHORTCUT = 'Cmd+Ctrl+A';
 
 /**
  * Fires from anywhere, even when Auxin isn't the focused app. Shows and
- * focuses the dedicated "capture" popup window (see src-tauri/src/lib.rs
- * and CaptureWindow.tsx) rather than the main window — this is a Raycast-
- * style always-on-top popup, not an overlay inside the main app, so the
- * main window never has to move or come forward.
+ * focuses the dedicated "capture" popup panel (see popupPanel.ts and
+ * CaptureWindow.tsx) rather than the main window — this is a Raycast-style
+ * always-on-top popup, not an overlay inside the main app, so the main
+ * window never has to move or come forward.
  */
 export function useGlobalCaptureShortcut(): void {
   useEffect(() => {
@@ -23,11 +23,7 @@ export function useGlobalCaptureShortcut(): void {
 
     void register(CAPTURE_SHORTCUT, async (event) => {
       if (event.state !== 'Pressed') return;
-      const captureWindow = await Window.getByLabel('capture');
-      if (!captureWindow) return;
-      await captureWindow.center();
-      await captureWindow.show();
-      await captureWindow.setFocus();
+      await showPopupPanel('capture');
     }).catch(() => {
       // Another app already holds this binding — silently no-op rather than
       // surfacing an error for a background registration the user didn't

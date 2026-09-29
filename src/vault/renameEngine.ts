@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { getDb } from '../db/client';
+import { logUsageEvent } from '../db/usageEvents';
 import { getEditorView } from '../editor/editorRegistry';
 import { CANVAS_EXTENSION } from './canvasTypes';
 import { parseCanvasDocument } from './parseCanvas';
@@ -98,6 +99,12 @@ export async function renameNote(
   // syncFileAsRename records the old title into note_aliases and updates
   // notes.path/title (see upsertParsedNote in syncEngine.ts).
   await syncFileAsRename(vaultRoot, newAbsolutePath, noteId);
+  void logUsageEvent(vaultRoot, {
+    type: 'rename',
+    path: newRelativePath,
+    title,
+    detail: { oldTitle },
+  }).catch((error: unknown) => console.error('[usage] failed to log event', error));
 
   const { updatedCount, failures } = await relinkAcrossFiles(
     vaultRoot,

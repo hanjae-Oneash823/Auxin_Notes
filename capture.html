@@ -4,6 +4,21 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Auxin Capture</title>
+    <!-- Transparent from the very first frame — the window itself is
+         transparent (see src-tauri/src/commands/popup_panel.rs), so the
+         capture chips float directly over the desktop; each supplies its own
+         opaque background (CaptureWindow.tsx). -->
+    <style>
+      /* The panel's intro/outro transforms (PANEL_VARIANTS) push it a few px
+         past the viewport while animating — clip that instead of letting
+         WebKit flash scrollbars. */
+      html,
+      body {
+        margin: 0;
+        overflow: hidden;
+        background: transparent;
+      }
+    </style>
   </head>
 
   <body>

@@ -6,7 +6,8 @@ interface NoteListItemProps {
   isActive: boolean;
   isRenaming: boolean;
   renameValue: string;
-  onSelect: () => void;
+  /** `source` is the clicked row, for the fly-to-tab animation. */
+  onSelect: (source: HTMLElement) => void;
   onStartRename: () => void;
   onRenameChange: (value: string) => void;
   onRenameCommit: () => void;
@@ -44,7 +45,7 @@ export function NoteListItem({
   return (
     <button
       type="button"
-      onClick={onSelect}
+      onClick={(event) => onSelect(event.currentTarget)}
       onDoubleClick={onStartRename}
       className={`flex w-full items-center gap-1.5 truncate rounded-row px-1.5 py-0.5 text-left transition-colors duration-panel ease-panel ${
         isActive ? 'bg-border-default text-fg' : 'text-fg-muted hover:bg-border-subtle hover:text-fg-prominent'

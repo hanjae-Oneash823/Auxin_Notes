@@ -1,6 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { platform } from '@tauri-apps/plugin-os';
 import { revealItemInDir } from '@tauri-apps/plugin-opener';
 import { Editor } from './editor/Editor';
 import { VaultPicker } from './app/firstRun/VaultPicker';
@@ -8,6 +7,7 @@ import { getDb } from './db/client';
 import { listNotes, type NoteSummary } from './db/queries/notes';
 import { getUnresolvedLinkGroups } from './db/queries/links';
 import { syncFile, syncRemoved, toRelativePath } from './vault/syncEngine';
+import { logUsageEvent } from './db/usageEvents';
 import { renameNote } from './vault/renameEngine';
 import { createFolder, deleteFolder, moveFolder, moveNoteToFolder, renameFolder } from './vault/folderEngine';
 import { useVaultStore } from './vault/vaultStore';
@@ -17,16 +17,22 @@ import { SidebarNav } from './layout/SidebarNav';
 import { RightPanelHeader } from './layout/RightPanel';
 import { usePanelLayoutStore } from './layout/panelLayoutStore';
 import { FilePlus, FolderPlus, Stack } from '@phosphor-icons/react';
+import { animateFolderDelete } from './layout/folderDeleteAnimation';
+import { panTabContent, type PanDirection } from './layout/panTransition';
 import { PacketIconButton, SidebarPacket } from './layout/SidebarPacket';
 import { Sidebar } from './layout/Sidebar';
 import { StatusBar } from './layout/StatusBar';
 import { HOME_TAB_ID, TabBar, type TabItem } from './layout/TabBar';
-import { TitleBar } from './layout/TitleBar';
+import { buildTabGroupTree, flattenTabGroups } from './layout/tabGroups';
+import { WindowChrome } from './layout/WindowChrome';
 import { ConfirmDialog } from './layout/ConfirmDialog';
-import { reorderIds } from './layout/tabOrder';
+import { useWorkspaces } from './layout/useWorkspaces';
+import { WorkspaceSwitcher } from './layout/WorkspaceSwitcher';
 import { titleFromPath } from './vault/noteTitle';
 import { HomeDashboard } from './notes/HomeDashboard';
 import { HubView } from './notes/HubView';
+import { formatFolder } from './notes/noteStats';
+import { useOpenNoteStats } from './notes/useOpenNoteStats';
 import { CanvasView } from './canvas/CanvasView';
 import { CANVAS_EXTENSION } from './vault/canvasTypes';
 import { FolderTree } from './notes/FolderTree';
@@ -65,27 +71,51 @@ async function fetchFolders(vaultRoot: string): Promise<string[]> {
 interface VaultReadyProps {
   vaultRoot: string;
   activeTabId: string;
+  /** Restored focus waiting for the note index to load before it is applied. */
+  pendingActiveId: string | null;
+  onPendingActiveApplied: () => void;
   tabItems: TabItem[];
   setActiveTabId: (id: string) => void;
   openAbsolutePath: (absolutePath: string) => void;
   closeTab: (id: string) => void;
   renameTabId: (oldId: string, newId: string) => void;
   remapTabsUnderFolder: (oldAbsolutePrefix: string, newAbsolutePrefix: string) => void;
-  closeTabsUnderFolder: (absolutePrefix: string) => void;
+  removeTabsEverywhere: (shouldRemove: (tabId: string) => boolean) => void;
   reorderTabs: (draggedId: string, targetId: string, placeAfter: boolean) => void;
+  workspaceNames: string[];
+  currentWorkspace: string;
+  stepWorkspace: (step: 1 | -1) => string | null;
+  switchWorkspace: (name: string) => void;
+  renameWorkspace: (name: string, newName: string) => string | null;
+  createWorkspace: (name: string) => string | null;
+  deleteWorkspace: (name: string) => void;
 }
+
+/** Passed to flattenTabGroups when computing the keyboard-shortcut tab
+ *  order — always "nothing collapsed" so a tab stays reachable by shortcut
+ *  even while its group is visually collapsed in the sidebar. */
+const EMPTY_COLLAPSED_PATHS = new Set<string>();
 
 function VaultReady({
   vaultRoot,
   activeTabId,
+  pendingActiveId,
+  onPendingActiveApplied,
   tabItems,
   setActiveTabId,
   openAbsolutePath,
   closeTab,
   renameTabId,
   remapTabsUnderFolder,
-  closeTabsUnderFolder,
+  removeTabsEverywhere,
   reorderTabs,
+  workspaceNames,
+  currentWorkspace,
+  stepWorkspace,
+  switchWorkspace,
+  renameWorkspace,
+  createWorkspace: createWorkspaceNamed,
+  deleteWorkspace,
 }: VaultReadyProps) {
   const setSidebarWidthLeft = useSettingsStore((state) => state.setSidebarWidthLeft);
   const setSidebarWidthRight = useSettingsStore((state) => state.setSidebarWidthRight);
@@ -129,6 +159,18 @@ function VaultReady({
   // every app launch, same as reading mode above.
   const [isPinnedOpen, setIsPinnedOpen] = useState(false);
   const activeRightLayer = usePanelLayoutStore((state) => state.activeRightLayer);
+  const setRightLayer = usePanelLayoutStore((state) => state.setRightLayer);
+  const isRightSidebarOpen = usePanelLayoutStore((state) => state.isRightSidebarOpen);
+  const toggleRightSidebar = usePanelLayoutStore((state) => state.toggleSidebar);
+
+  /** Home dashboard's tag chips — filters by the tag (same state TagBrowser
+   *  drives) and jumps the right panel to the layer that shows it, opening
+   *  that sidebar first if it's currently collapsed. */
+  function openTagFromDashboard(tag: string) {
+    setSelectedTag(tag);
+    setRightLayer('links');
+    if (!isRightSidebarOpen) toggleRightSidebar('right');
+  }
 
   async function refreshNotes() {
     const [all, unresolved, folders] = await Promise.all([
@@ -152,6 +194,23 @@ function VaultReady({
     void loadStickyNotes(vaultRoot);
   }, [vaultRoot, loadStickyNotes]);
 
+  // Restored focus: applied only once the note index has loaded (see App).
+  useEffect(() => {
+    if (pendingActiveId === null || allNotes === null) return;
+    setActiveTabId(pendingActiveId);
+    onPendingActiveApplied();
+  }, [pendingActiveId, allNotes, setActiveTabId, onPendingActiveApplied]);
+
+  /** Picking a tab leaves any full-area mode (graphs, sticky board) — with
+   *  the tab list always visible in the sidebar, a click there has to land on
+   *  that tab's content, not stay behind the mode. */
+  function selectTab(tabId: string) {
+    setIsGraphMode(false);
+    setIsGraph2DMode(false);
+    setIsStickyMode(false);
+    setActiveTabId(tabId);
+  }
+
   function openRelativePath(relativePath: string) {
     openAbsolutePath(`${vaultRoot}/${relativePath}`);
   }
@@ -161,9 +220,13 @@ function VaultReady({
    *  sidebar's "+ new note" button. */
   async function createNote(folderPath?: string) {
     const title = `Untitled ${Date.now()}`;
-    const absolutePath = folderPath ? `${vaultRoot}/${folderPath}/${title}.md` : `${vaultRoot}/${title}.md`;
+    const relativePath = folderPath ? `${folderPath}/${title}.md` : `${title}.md`;
+    const absolutePath = `${vaultRoot}/${relativePath}`;
     await invoke('write_note', { path: absolutePath, content: '' });
     await syncFile(vaultRoot, absolutePath);
+    void logUsageEvent(vaultRoot, { type: 'create', path: relativePath, title }).catch((error: unknown) =>
+      console.error('[usage] failed to log event', error),
+    );
     await refreshNotes();
     openAbsolutePath(absolutePath);
     // A freshly created note is opened to be written into — reading mode
@@ -182,6 +245,9 @@ function VaultReady({
     const content = JSON.stringify({ version: 1, cards: [], groups: [], arrows: [] });
     await invoke('write_note', { path: absolutePath, content });
     await syncFile(vaultRoot, absolutePath);
+    void logUsageEvent(vaultRoot, { type: 'create', path: relativePath, title, detail: { kind: 'canvas' } }).catch(
+      (error: unknown) => console.error('[usage] failed to log event', error),
+    );
     await refreshNotes();
     openAbsolutePath(absolutePath);
   }
@@ -217,6 +283,9 @@ function VaultReady({
     const content = ['```hub', `folder: ${folder}`, 'recursive: true', 'sort: modified', 'groupBy: flat', '```', ''].join('\n');
     await invoke('write_note', { path: absolutePath, content });
     await syncFile(vaultRoot, absolutePath);
+    void logUsageEvent(vaultRoot, { type: 'create', path: relativePath, title, detail: { kind: 'hub' } }).catch(
+      (error: unknown) => console.error('[usage] failed to log event', error),
+    );
     await refreshNotes();
     openAbsolutePath(absolutePath);
   }
@@ -239,7 +308,10 @@ function VaultReady({
     try {
       await invoke('delete_note', { path: absolutePath });
       await syncRemoved(vaultRoot, absolutePath);
-      closeTab(absolutePath);
+      void logUsageEvent(vaultRoot, { type: 'delete', path: note.path, title: note.title }).catch(
+        (error: unknown) => console.error('[usage] failed to log event', error),
+      );
+      removeTabsEverywhere((id) => id === absolutePath);
       await refreshNotes();
     } catch (error: unknown) {
       setRenameStatus({ message: error instanceof Error ? error.message : String(error), isError: true });
@@ -250,11 +322,16 @@ function VaultReady({
    *  tabs that lived under it. Called only after `pendingDelete`'s
    *  confirmation card has been accepted. */
   async function deleteFolderHandler(folderPath: string) {
+    // The exit animation starts first, while the folder's rows and tab group
+    // still exist; state only changes once both it and the delete are done.
+    const exit = animateFolderDelete(folderPath);
     try {
-      await deleteFolder(vaultRoot, folderPath);
-      closeTabsUnderFolder(`${vaultRoot}/${folderPath}`);
+      await Promise.all([deleteFolder(vaultRoot, folderPath), exit.finished]);
+      removeTabsEverywhere((id) => id.startsWith(`${vaultRoot}/${folderPath}/`));
       await refreshNotes();
+      exit.release();
     } catch (error: unknown) {
+      exit.cancel();
       setRenameStatus({ message: error instanceof Error ? error.message : String(error), isError: true });
     }
   }
@@ -372,25 +449,108 @@ function VaultReady({
   const activeRelativePath = activePath ? toRelativePath(vaultRoot, activePath) : null;
   const activeNote = allNotes?.find((note) => note.path === activeRelativePath) ?? null;
 
+  // Tab cards show the note's folder, age, length and image count. Word/image
+  // counts come from each open note's file (see useOpenNoteStats); canvases
+  // are JSON, not prose, so they're skipped.
+  const statsPaths = tabItems.filter((tab) => tab.kind === 'note').map((tab) => tab.id);
+  const tabStats = useOpenNoteStats(statsPaths, activeTabId);
+  const cardTabItems: TabItem[] = tabItems.map((tab) => {
+    if (tab.kind === 'home') return tab;
+    const relativePath = toRelativePath(vaultRoot, tab.id);
+    const note = allNotes?.find((candidate) => candidate.path === relativePath);
+    const slashIndex = relativePath.lastIndexOf('/');
+    return {
+      ...tab,
+      kind: note?.isHub ? 'hub' : tab.kind,
+      folder: formatFolder(relativePath),
+      folderPath: slashIndex >= 0 ? relativePath.slice(0, slashIndex) : '',
+      modified: note?.modified ?? null,
+      stats: tabStats.get(tab.id) ?? null,
+    };
+  });
+
+  // The content area the keyboard tab shortcuts pan (see panTransition.ts).
+  const contentRef = useRef<HTMLDivElement>(null);
+
+  // Cmd+1..9 jumps to that tab (Cmd+1 is always Home); Cmd+Up/Down cycles
+  // to the previous/next tab, wrapping at the ends. Ordered to match the
+  // sidebar's actual grouped layout (TabBar.tsx: folders alphabetical, tabs
+  // within a folder in open-order), not raw open-order across the whole
+  // list — always computed as if nothing were collapsed, since collapse
+  // state lives locally inside TabBar and a tab is still reachable this way
+  // even while its group is visually collapsed. Matched on `code` so both
+  // are layout-independent; Cmd+Opt+<key> is left alone.
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      if (!event.metaKey || event.altKey) return;
+
+      const sidebarOrderedTabs = flattenTabGroups(buildTabGroupTree(cardTabItems), EMPTY_COLLAPSED_PATHS)
+        .filter((row) => row.kind === 'tab')
+        .map((row) => row.tab);
+
+      const pan = (direction: PanDirection) => {
+        if (contentRef.current) panTabContent(contentRef.current, direction);
+      };
+      const currentIndex = sidebarOrderedTabs.findIndex((tab) => tab.id === activeTabId);
+
+      if (/^Digit[1-9]$/.test(event.code)) {
+        const targetIndex = Number(event.code.slice(-1)) - 1;
+        const target = sidebarOrderedTabs[targetIndex];
+        if (!target) return;
+        event.preventDefault();
+        if (target.id !== activeTabId) pan(targetIndex > currentIndex ? 'down' : 'up');
+        selectTab(target.id);
+        return;
+      }
+
+      if (event.code === 'ArrowLeft' || event.code === 'ArrowRight') {
+        // Cmd+Left/Right switches workspace — this takes over the editor's
+        // "cursor to line start/end" chord, by request.
+        if (workspaceNames.length < 2) return;
+        event.preventDefault();
+        setIsGraphMode(false);
+        setIsGraph2DMode(false);
+        setIsStickyMode(false);
+        stepWorkspace(event.code === 'ArrowRight' ? 1 : -1);
+        return;
+      }
+
+      if ((event.code === 'ArrowUp' || event.code === 'ArrowDown') && sidebarOrderedTabs.length > 1) {
+        event.preventDefault();
+        const delta = event.code === 'ArrowUp' ? -1 : 1;
+        const nextIndex = (currentIndex + delta + sidebarOrderedTabs.length) % sidebarOrderedTabs.length;
+        // Direction follows the key, not the index, so wrapping past either
+        // end still pans the way the key points.
+        pan(delta > 0 ? 'down' : 'up');
+        selectTab(sidebarOrderedTabs[nextIndex].id);
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  });
+
   return (
     <AppShell
       sidebar={
         <Sidebar side="left" onResizeEnd={(px) => void setSidebarWidthLeft(px)}>
+          <WorkspaceSwitcher
+            names={workspaceNames}
+            current={currentWorkspace}
+            onStep={(step) => {
+              setIsStickyMode(false);
+              stepWorkspace(step);
+            }}
+            onCreate={(name) => {
+              const error = createWorkspaceNamed(name);
+              if (!error) setIsStickyMode(false);
+              return error;
+            }}
+            onRename={renameWorkspace}
+            onDelete={deleteWorkspace}
+          />
           <SidebarNav
             isPinnedOpen={isPinnedOpen}
             onTogglePinned={() => setIsPinnedOpen((isOpen) => !isOpen)}
-            isGraphMode={isGraphMode}
-            onToggleGraphMode={() => {
-              setIsGraphMode((mode) => !mode);
-              setIsGraph2DMode(false);
-              setIsStickyMode(false);
-            }}
-            isGraph2DMode={isGraph2DMode}
-            onToggleGraph2DMode={() => {
-              setIsGraph2DMode((mode) => !mode);
-              setIsGraphMode(false);
-              setIsStickyMode(false);
-            }}
             isStickyMode={isStickyMode}
             onToggleStickyMode={() => {
               setIsStickyMode((mode) => !mode);
@@ -398,6 +558,28 @@ function VaultReady({
               setIsGraph2DMode(false);
             }}
           />
+          <SidebarPacket title="Tabs" isFill>
+            <TabBar
+              tabs={cardTabItems}
+              activeTabId={activeTabId}
+              vaultRoot={vaultRoot}
+              onSelect={selectTab}
+              onClose={closeTab}
+              onReorder={reorderTabs}
+              onNewNote={(path) => void createNote(path)}
+              onNewCanvas={(path) => void createCanvas(path)}
+              onNewSubfolder={(path) => void handleCreateFolderAt(path)}
+              onRenameFolder={(folderPath, newName) => void handleRenameFolder(folderPath, newName)}
+              folderPaths={folderPaths}
+              allNotes={allNotes ?? []}
+              onOpenNote={openRelativePath}
+              // Run the scroll container out to the panel's edge (packet's
+              // px-1.5 + panel's px-2 = 14px) so its scrollbar sits flush; the
+              // padding is less than that, so cards sit closer to the
+              // scrollbar than the panel padding alone would put them.
+              className="sidebar-scroll -mr-3.5 min-h-0 flex-1 pr-2.5"
+            />
+          </SidebarPacket>
           {isPinnedOpen && (
             <SidebarPacket title="Pinned notes" isFill>
               <PinnedDock />
@@ -482,16 +664,18 @@ function VaultReady({
               <SearchPanel vaultRoot={vaultRoot} onSelect={openRelativePath} />
             </SidebarPacket>
           )}
-          {activeRightLayer === 'tags' && (
-            <SidebarPacket title="Tags" isFill>
-              <TagBrowser vaultRoot={vaultRoot} selectedTag={selectedTag} onSelectTag={setSelectedTag} />
-            </SidebarPacket>
-          )}
           {activeRightLayer === 'contents' && <TocPanel activePath={activePath} />}
           {activeRightLayer === 'links' && (
             <>
               <BacklinksPanel vaultRoot={vaultRoot} noteId={activeNote?.id ?? null} onSelect={openRelativePath} />
               <UnresolvedLinksPanel vaultRoot={vaultRoot} onSelect={openRelativePath} onChanged={refreshNotes} />
+              {/* Tags take the leftover height, but never shrink below a usable list
+                  when the two link panels above are long. */}
+              <div className="flex min-h-40 flex-1 flex-col">
+                <SidebarPacket title="Tags" isFill>
+                  <TagBrowser vaultRoot={vaultRoot} selectedTag={selectedTag} onSelectTag={setSelectedTag} />
+                </SidebarPacket>
+              </div>
             </>
           )}
           {pendingDelete && (
@@ -529,20 +713,8 @@ function VaultReady({
         />
       }
     >
-      <div className="flex h-full flex-col">
-        {/* macOS gets tabs inline in the window header (TitleBar) instead —
-            this fallback row only renders where that header doesn't exist. */}
-        {platform() !== 'macos' && !isGraphMode && !isGraph2DMode && (
-          <TabBar
-            tabs={tabItems}
-            activeTabId={activeTabId}
-            onSelect={setActiveTabId}
-            onClose={closeTab}
-            onReorder={reorderTabs}
-            className="shrink-0 border-b-[1.5px] border-b-border-strong"
-          />
-        )}
-        <div className="min-h-0 flex-1">
+      <div className="relative flex h-full flex-col overflow-hidden">
+        <div ref={contentRef} className="min-h-0 flex-1">
           {isGraphMode ? (
             <GraphPanel
               vaultRoot={vaultRoot}
@@ -600,10 +772,17 @@ function VaultReady({
             </div>
           ) : (
             <HomeDashboard
+              vaultRoot={vaultRoot}
               noteCount={allNotes?.length ?? 0}
               unresolvedCount={unresolvedCount}
-              recentNotes={allNotes ?? []}
               onSelect={openRelativePath}
+              onSelectTag={openTagFromDashboard}
+              onNewNote={() => void createNote()}
+              onNewCanvas={() => void createCanvas()}
+              onOpenStickyBoard={() => setIsStickyMode(true)}
+              workspaceNames={workspaceNames}
+              currentWorkspace={currentWorkspace}
+              onSwitchWorkspace={switchWorkspace}
             />
           )}
         </div>
@@ -618,75 +797,9 @@ function App() {
   const initPanelLayout = usePanelLayoutStore((state) => state.initFromConfig);
   const toggleSidebar = usePanelLayoutStore((state) => state.toggleSidebar);
 
-  // Tab state lives here (not in VaultReady) so the macOS window header
-  // (TitleBar, a sibling of VaultReady) can render the same tabs.
-  const [tabs, setTabs] = useState<string[]>([HOME_TAB_ID]);
-  const [activeTabId, setActiveTabId] = useState<string>(HOME_TAB_ID);
-
-  /** Opens a note's tab, focusing it if already open rather than duplicating it. */
-  function openAbsolutePath(absolutePath: string) {
-    setTabs((prev) => (prev.includes(absolutePath) ? prev : [...prev, absolutePath]));
-    setActiveTabId(absolutePath);
-  }
-
-  /** Closes a tab. The HOME tab is pinned and ignores this. Closing the
-   *  active tab falls back to its left neighbor, then HOME. */
-  function closeTab(tabId: string) {
-    if (tabId === HOME_TAB_ID) return;
-    const index = tabs.indexOf(tabId);
-    if (index === -1) return;
-    const next = tabs.filter((id) => id !== tabId);
-    setTabs(next);
-    if (activeTabId === tabId) {
-      setActiveTabId(next[index - 1] ?? next[0] ?? HOME_TAB_ID);
-    }
-  }
-
-  function renameTabId(oldId: string, newId: string) {
-    setTabs((prev) => prev.map((id) => (id === oldId ? newId : id)));
-    if (activeTabId === oldId) setActiveTabId(newId);
-  }
-
-  /** Remaps every open tab whose id sits under `oldAbsolutePrefix` (a moved
-   *  or renamed folder) to the equivalent path under `newAbsolutePrefix` —
-   *  unlike `renameTabId`'s single-note remap, a folder move can shift many
-   *  open notes' paths at once. */
-  function remapTabsUnderFolder(oldAbsolutePrefix: string, newAbsolutePrefix: string) {
-    const withSlash = `${oldAbsolutePrefix}/`;
-    function remap(id: string): string {
-      return id.startsWith(withSlash) ? `${newAbsolutePrefix}/${id.slice(withSlash.length)}` : id;
-    }
-    setTabs((prev) => prev.map(remap));
-    if (activeTabId.startsWith(withSlash)) setActiveTabId(remap(activeTabId));
-  }
-
-  /** Closes every open tab whose id sits under `absolutePrefix` — a deleted
-   *  folder's counterpart to `remapTabsUnderFolder`'s move/rename case, since
-   *  a delete has nowhere to remap those tabs to. Computes the full next
-   *  tab list in one `setTabs` call rather than looping `closeTab` per id —
-   *  each call there reads the same pre-render `tabs` closure, so a loop
-   *  would have every iteration but the last clobber the ones before it. */
-  function closeTabsUnderFolder(absolutePrefix: string) {
-    const withSlash = `${absolutePrefix}/`;
-    const removedSet = new Set(tabs.filter((id) => id.startsWith(withSlash)));
-    if (removedSet.size === 0) return;
-    const next = tabs.filter((id) => !removedSet.has(id));
-    setTabs(next);
-    if (!removedSet.has(activeTabId)) return;
-    const originalIndex = tabs.indexOf(activeTabId);
-    const priorSurvivor = [...next].reverse().find((id) => tabs.indexOf(id) < originalIndex);
-    setActiveTabId(priorSurvivor ?? next[0] ?? HOME_TAB_ID);
-  }
-
-  /** Moves `draggedId` to sit next to `targetId` — after it when `placeAfter`
-   *  is true, so dropping past the last tab (placeAfter on the last tab) can
-   *  still reach the rightmost position. The HOME tab is pinned first and
-   *  never participates — TabBar already refuses to make it draggable or a
-   *  drop target, this is the belt-and-suspenders check. */
-  function reorderTabs(draggedId: string, targetId: string, placeAfter: boolean) {
-    if (draggedId === HOME_TAB_ID || targetId === HOME_TAB_ID) return;
-    setTabs((prev) => reorderIds(prev, draggedId, targetId, placeAfter));
-  }
+  // Workspaces own the tab state and its commands; VaultReady gets them as props.
+  const workspaces = useWorkspaces(vaultRoot);
+  const { tabs } = workspaces;
 
   useEffect(() => {
     void initFromConfig();
@@ -710,19 +823,14 @@ function App() {
 
   const tabItems: TabItem[] = tabs.map((id) => ({
     id,
-    label: id === HOME_TAB_ID ? 'home' : titleFromPath(id),
+    label: id === HOME_TAB_ID ? 'Home' : titleFromPath(id),
+    kind: id === HOME_TAB_ID ? 'home' : id.endsWith(CANVAS_EXTENSION) ? 'canvas' : 'note',
     closable: id !== HOME_TAB_ID,
   }));
 
   return (
     <div className="flex h-full flex-col">
-      <TitleBar
-        tabs={tabItems}
-        activeTabId={activeTabId}
-        onSelectTab={setActiveTabId}
-        onCloseTab={closeTab}
-        onReorderTabs={reorderTabs}
-      />
+      <WindowChrome />
       <div className="min-h-0 flex-1">
         {status === 'loading' && !vaultRoot ? (
           <main className="flex h-full flex-col items-center justify-center">
@@ -735,15 +843,24 @@ function App() {
         ) : (
           <VaultReady
             vaultRoot={vaultRoot}
-            activeTabId={activeTabId}
+            activeTabId={workspaces.activeTabId}
+            pendingActiveId={workspaces.pendingActiveId}
+            onPendingActiveApplied={workspaces.clearPendingActive}
             tabItems={tabItems}
-            setActiveTabId={setActiveTabId}
-            openAbsolutePath={openAbsolutePath}
-            closeTab={closeTab}
-            renameTabId={renameTabId}
-            remapTabsUnderFolder={remapTabsUnderFolder}
-            closeTabsUnderFolder={closeTabsUnderFolder}
-            reorderTabs={reorderTabs}
+            setActiveTabId={workspaces.setActiveTabId}
+            openAbsolutePath={workspaces.openAbsolutePath}
+            closeTab={workspaces.closeTab}
+            renameTabId={workspaces.renameTabId}
+            remapTabsUnderFolder={workspaces.remapTabsUnderFolder}
+            removeTabsEverywhere={workspaces.removeTabsEverywhere}
+            reorderTabs={workspaces.reorderTabs}
+            workspaceNames={workspaces.workspaceNames}
+            currentWorkspace={workspaces.currentWorkspace}
+            stepWorkspace={workspaces.stepWorkspace}
+            switchWorkspace={workspaces.switchWorkspace}
+            renameWorkspace={workspaces.renameWorkspace}
+            createWorkspace={workspaces.createWorkspace}
+            deleteWorkspace={workspaces.deleteWorkspace}
           />
         )}
       </div>
