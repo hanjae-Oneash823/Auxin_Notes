@@ -42,6 +42,8 @@ Canvas boards and the graph view are still being finished — screenshots to com
 
 ## Architecture
 
+![Architecture diagram](docs/architecture.png)
+
 Auxin is a Tauri 2 app: a Rust backend handles the OS-level work, and a React 19 + TypeScript frontend (built with Vite) handles the UI.
 
 **Source of truth is the filesystem.** A vault is just a folder of markdown files. Auxin doesn't own your notes — it reads and writes them directly, and a note is still a perfectly normal file if you open it elsewhere.
