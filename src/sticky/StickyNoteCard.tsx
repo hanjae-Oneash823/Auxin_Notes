@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react';
-import { PushPin, X } from '@phosphor-icons/react';
+import { X } from '@phosphor-icons/react';
 import type { StickyNote } from '../db/queries/sticky';
 import { useStickyStore } from './stickyStore';
 
@@ -9,8 +9,8 @@ const DRAG_THRESHOLD_PX = 4;
 
 interface StickyNoteCardProps {
   note: StickyNote;
-  /** Board-space center position (physics board only) — omitted in the
-   *  pinned dock, which lays notes out in normal document flow instead. */
+  /** Board-space center position — when omitted the card lays out in normal
+   *  document flow and isn't draggable. */
   position?: { x: number; y: number };
   onBeginDrag?: (id: string) => void;
   onDragTo?: (id: string, x: number, y: number) => void;
@@ -36,7 +36,6 @@ function rotationForId(id: string): number {
 export function StickyNoteCard({ note, position, onBeginDrag, onDragTo, onEndDrag }: StickyNoteCardProps) {
   const update = useStickyStore((state) => state.update);
   const remove = useStickyStore((state) => state.remove);
-  const setPinned = useStickyStore((state) => state.setPinned);
   const toggleChecklistItem = useStickyStore((state) => state.toggleChecklistItem);
   const updateChecklistItemText = useStickyStore((state) => state.updateChecklistItemText);
   const removeChecklistItem = useStickyStore((state) => state.removeChecklistItem);
@@ -111,9 +110,6 @@ export function StickyNoteCard({ note, position, onBeginDrag, onDragTo, onEndDra
       onPointerUp={handlePointerUp}
     >
       <div className="mb-1 flex justify-end gap-1 opacity-70">
-        <button type="button" title={note.pinned ? 'unpin' : 'pin'} onClick={() => void setPinned(note.id, !note.pinned)}>
-          <PushPin size={14} weight={note.pinned ? 'fill' : 'regular'} />
-        </button>
         <button type="button" title="delete" onClick={() => void remove(note.id)}>
           <X size={14} weight="regular" />
         </button>

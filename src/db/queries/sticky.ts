@@ -16,8 +16,6 @@ export interface StickyNote {
   title: string | null;
   content: string;
   color: string;
-  pinned: boolean;
-  pinnedOrder: number | null;
   boardX: number | null;
   boardY: number | null;
   created: string;
@@ -31,8 +29,6 @@ interface StickyNoteRow {
   title: string | null;
   content: string;
   color: string;
-  pinned: number;
-  pinned_order: number | null;
   board_x: number | null;
   board_y: number | null;
   created: string;
@@ -54,8 +50,6 @@ function toStickyNote(row: StickyNoteRow, items: StickyChecklistItem[]): StickyN
     title: row.title,
     content: row.content,
     color: row.color,
-    pinned: row.pinned === 1,
-    pinnedOrder: row.pinned_order,
     boardX: row.board_x,
     boardY: row.board_y,
     created: row.created,
@@ -101,8 +95,8 @@ export async function createStickyNote(db: Database, input: CreateStickyNoteInpu
   const color = input.color ?? 'yellow';
 
   await db.execute(
-    `INSERT INTO sticky_notes (id, type, title, content, color, pinned, pinned_order, board_x, board_y, created, modified)
-     VALUES (?, ?, ?, ?, ?, 0, NULL, NULL, NULL, ?, ?)`,
+    `INSERT INTO sticky_notes (id, type, title, content, color, board_x, board_y, created, modified)
+     VALUES (?, ?, ?, ?, ?, NULL, NULL, ?, ?)`,
     [id, input.type, title, content, color, now, now],
   );
 
@@ -124,8 +118,6 @@ export async function createStickyNote(db: Database, input: CreateStickyNoteInpu
     title,
     content,
     color,
-    pinned: false,
-    pinnedOrder: null,
     boardX: null,
     boardY: null,
     created: now,
@@ -167,25 +159,6 @@ export async function updateStickyNote(db: Database, id: string, input: UpdateSt
 
 export async function deleteStickyNote(db: Database, id: string): Promise<void> {
   await db.execute('DELETE FROM sticky_notes WHERE id = ?', [id]);
-}
-
-/** `pinnedOrder` is required when pinning (append-at-end is the caller's
- *  job, same as `reorderPinned`'s full-list contract below) and cleared
- *  automatically when unpinning. */
-export async function setPinned(db: Database, id: string, pinned: boolean, pinnedOrder?: number): Promise<void> {
-  await db.execute('UPDATE sticky_notes SET pinned = ?, pinned_order = ? WHERE id = ?', [
-    pinned ? 1 : 0,
-    pinned ? (pinnedOrder ?? 0) : null,
-    id,
-  ]);
-}
-
-/** Rewrites every pinned note's order from the given id sequence — simpler
- *  and just as cheap as a diff at this scale (a handful of pinned notes). */
-export async function reorderPinned(db: Database, orderedIds: string[]): Promise<void> {
-  for (const [index, id] of orderedIds.entries()) {
-    await db.execute('UPDATE sticky_notes SET pinned_order = ? WHERE id = ?', [index, id]);
-  }
 }
 
 export async function updateBoardPosition(db: Database, id: string, x: number, y: number): Promise<void> {

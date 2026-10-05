@@ -7,8 +7,6 @@ import {
   deleteChecklistItem,
   deleteStickyNote,
   listStickyNotes,
-  reorderPinned,
-  setPinned as setPinnedQuery,
   toggleChecklistItem,
   updateBoardPosition,
   updateChecklistItemText,
@@ -27,8 +25,6 @@ interface StickyState {
   create: (input: CreateStickyNoteInput) => Promise<void>;
   update: (id: string, input: UpdateStickyNoteInput) => Promise<void>;
   remove: (id: string) => Promise<void>;
-  setPinned: (id: string, pinned: boolean) => Promise<void>;
-  reorderPinned: (orderedIds: string[]) => Promise<void>;
   setBoardPosition: (id: string, x: number, y: number, persist: boolean) => void;
   addChecklistItem: (noteId: string, text: string) => Promise<void>;
   toggleChecklistItem: (noteId: string, itemId: string, checked: boolean) => Promise<void>;
@@ -94,34 +90,6 @@ export const useStickyStore = create<StickyState>((set, get) => ({
     const db = await getDb(vaultRoot);
     await deleteStickyNote(db, id);
     set((state) => ({ notes: state.notes.filter((note) => note.id !== id) }));
-  },
-
-  setPinned: async (id: string, pinned: boolean) => {
-    const { vaultRoot, notes } = get();
-    if (!vaultRoot) return;
-    const db = await getDb(vaultRoot);
-    const nextOrder = pinned ? notes.filter((note) => note.pinned).length : undefined;
-    await setPinnedQuery(db, id, pinned, nextOrder);
-    set((state) => ({
-      notes: replaceNote(state.notes, id, (note) => ({
-        ...note,
-        pinned,
-        pinnedOrder: pinned ? nextOrder ?? 0 : null,
-      })),
-    }));
-  },
-
-  reorderPinned: async (orderedIds: string[]) => {
-    const { vaultRoot } = get();
-    if (!vaultRoot) return;
-    const db = await getDb(vaultRoot);
-    await reorderPinned(db, orderedIds);
-    const orderById = new Map(orderedIds.map((id, index) => [id, index]));
-    set((state) => ({
-      notes: state.notes.map((note) =>
-        orderById.has(note.id) ? { ...note, pinnedOrder: orderById.get(note.id) ?? note.pinnedOrder } : note,
-      ),
-    }));
   },
 
   /** `persist: false` during an in-progress drag (local state only, so the

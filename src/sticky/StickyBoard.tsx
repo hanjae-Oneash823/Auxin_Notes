@@ -9,15 +9,12 @@ interface ContainerSize {
 }
 
 /**
- * Full-screen "fridge door" — every unpinned note drifts in an organic
- * cluster via `useStickyBoardLayout`'s live physics, draggable to reposition.
- * Pinned notes don't appear here at all; they live in the dock instead (see
- * plan's Pinning decision).
+ * Full-screen "fridge door" — every note drifts in an organic cluster via
+ * `useStickyBoardLayout`'s live physics, draggable to reposition.
  */
 export function StickyBoard() {
   const notes = useStickyStore((state) => state.notes);
-  const unpinnedNotes = notes.filter((note) => !note.pinned);
-  const layout = useStickyBoardLayout(unpinnedNotes);
+  const layout = useStickyBoardLayout(notes);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState<ContainerSize>({ width: window.innerWidth, height: window.innerHeight });
@@ -42,7 +39,7 @@ export function StickyBoard() {
 
   return (
     <div ref={containerRef} className="relative h-full w-full overflow-hidden bg-bg">
-      {unpinnedNotes.map((note) => {
+      {notes.map((note) => {
         const simPosition = layout.positions.get(note.id) ?? { x: 0, y: 0 };
         return (
           <StickyNoteCard
