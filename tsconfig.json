@@ -21,5 +21,7 @@
     "noFallthroughCasesInSwitch": true
   },
   "include": ["src"],
+  // Node-only check script (node:sqlite); run with `node --experimental-strip-types`, not part of the app bundle.
+  "exclude": ["src/db/queries/planner/planner.check.ts", "src/db/queries/health/health.check.ts"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

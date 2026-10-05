@@ -38,7 +38,7 @@ export async function getDb(vaultRoot: string): Promise<Database> {
  *  its own semicolon (e.g. "tombstone; file missing") would otherwise split
  *  a statement in half, producing "incomplete input" from SQLite. Naive but
  *  sufficient: this schema file has no string literals containing `--`. */
-function stripSqlLineComments(sql: string): string {
+export function stripSqlLineComments(sql: string): string {
   return sql
     .split('\n')
     .map((line) => {
