@@ -94,6 +94,8 @@ interface TabBarProps {
   onClose: (id: string) => void;
   /** Right-click menu actions for a tab. */
   onToggleFlag: (id: string) => void;
+  /** Renames the note/canvas/PDF behind a tab; `id` is the tab's absolute path. */
+  onRenameTab: (id: string, newTitle: string) => void;
   onMoveToWorkspace: (id: string, workspaceName: string) => void;
   /** Adds the tab to another workspace while leaving it in this one. */
   onDuplicateToWorkspace: (id: string, workspaceName: string) => void;
@@ -220,6 +222,7 @@ export function TabBar({
   onSelect,
   onClose,
   onToggleFlag,
+  onRenameTab,
   onMoveToWorkspace,
   onDuplicateToWorkspace,
   onRevealInFinder,
@@ -346,6 +349,7 @@ export function TabBar({
   // like collapsedPaths above), since it's just a browsing aid, not
   // workspace structure.
   const [tabMenu, setTabMenu] = useState<{ tab: TabItem; x: number; y: number } | null>(null);
+  const [renamingTab, setRenamingTab] = useState<{ id: string; value: string } | null>(null);
   const [moreNotesPopup, setMoreNotesPopup] = useState<{ folderPath: string; x: number; y: number } | null>(null);
   const moreNotesOpenTimerRef = useRef<number | null>(null);
   const moreNotesCloseTimerRef = useRef<number | null>(null);
@@ -661,6 +665,13 @@ export function TabBar({
     prevRectsRef.current = restingRects;
   }
 
+  function commitTabRename() {
+    if (!renamingTab) return;
+    const { id, value } = renamingTab;
+    setRenamingTab(null);
+    onRenameTab(id, value);
+  }
+
   function handleClick(tabId: string) {
     if (suppressClickRef.current) {
       suppressClickRef.current = false;
@@ -703,9 +714,27 @@ export function TabBar({
       >
         <div className="flex items-start gap-2">
           <TabIcon size={15} className={`mt-0 shrink-0 ${isHome ? 'text-yellow-400' : tab.kind === 'pdf' ? 'text-accent-link-broken' : ''}`} />
-          <span className="min-w-0 flex-1 break-words font-medium" style={TITLE_CLAMP_STYLE}>
-            {tab.label}
-          </span>
+          {renamingTab?.id === tab.id ? (
+            <input
+              autoFocus
+              onFocus={(event) => event.currentTarget.select()}
+              value={renamingTab.value}
+              onChange={(event) => setRenamingTab({ id: tab.id, value: event.target.value })}
+              onMouseDown={(event) => event.stopPropagation()}
+              onClick={(event) => event.stopPropagation()}
+              onBlur={() => setRenamingTab(null)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') commitTabRename();
+                if (event.key === 'Escape') setRenamingTab(null);
+              }}
+              className="min-w-0 flex-1 rounded-row border border-border-strong bg-transparent px-1 font-medium text-fg-prominent outline-none"
+              style={{ fontSize: TITLE_CLAMP_STYLE.fontSize }}
+            />
+          ) : (
+            <span className="min-w-0 flex-1 break-words font-medium" style={TITLE_CLAMP_STYLE}>
+              {tab.label}
+            </span>
+          )}
           {tab.kind === 'hub' && <Pill>hub</Pill>}
           {tab.isFlagged && <Flag size={13} weight="fill" className="mt-[3px] shrink-0 text-yellow-400" />}
           {tab.closable && (
@@ -903,6 +932,7 @@ export function TabBar({
 
   const tabMenuItems: ContextMenuItem[] = tabMenu
     ? [
+        { label: 'Rename', onSelect: () => setRenamingTab({ id: tabMenu.tab.id, value: tabMenu.tab.label }) },
         { label: tabMenu.tab.isFlagged ? 'Remove flag' : 'Flag', onSelect: () => onToggleFlag(tabMenu.tab.id) },
         otherWorkspaces.length > 0
           ? {
