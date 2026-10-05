@@ -71,21 +71,21 @@ export function ContinueCard({ note, onSelect }: ContinueCardProps) {
     <button
       type="button"
       onClick={(event) => onSelect(note.path, event.currentTarget)}
-      className="home-rise tab-glow tab-glow-hover group flex w-full flex-col gap-1 rounded-tab border border-transparent bg-bg-packet-card px-3.5 py-3 text-left transition-colors duration-panel ease-panel hover:border-[color:var(--border-strong)] hover:bg-bg-packet-active hover:shadow-[var(--shadow-float)]"
+      className="home-rise tab-glow tab-glow-hover group flex w-full min-w-0 flex-col gap-1 rounded-tab border border-transparent bg-bg-packet-card px-3.5 py-3 text-left transition-colors duration-panel ease-panel hover:border-[color:var(--border-strong)] hover:bg-bg-packet-active hover:shadow-[var(--shadow-float)]"
     >
-      <div className="flex items-baseline gap-2">
+      <div className="flex w-full min-w-0 items-baseline gap-2">
         <ArrowUpRight
           size={16}
           className="shrink-0 self-center text-accent-link transition-transform duration-panel ease-panel group-hover:-translate-y-0.5 group-hover:translate-x-0.5"
         />
         <span
-          className="min-w-0 truncate text-fg-prominent"
+          className="min-w-0 flex-1 truncate text-fg-prominent"
           style={{ fontSize: '1.15rem', fontWeight: 700, lineHeight: 1.3, letterSpacing: '-0.01em' }}
         >
           {note.title}
         </span>
         <span
-          className="ml-auto shrink-0 text-fg-faint transition-colors duration-panel ease-panel group-hover:text-accent-link"
+          className="shrink-0 text-fg-faint transition-colors duration-panel ease-panel group-hover:text-accent-link"
           style={{ ...MONO, fontSize: '0.65rem', letterSpacing: 'var(--letter-spacing-label)' }}
         >
           resume ↵

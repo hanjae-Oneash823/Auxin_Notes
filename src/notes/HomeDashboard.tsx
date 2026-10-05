@@ -11,8 +11,6 @@ import {
   type VaultStats,
 } from '../db/queries/dashboard';
 import { listNotes } from '../db/queries/notes';
-import { listTagsWithCounts, type TagCount } from '../db/queries/tags';
-import { useStickyStore } from '../sticky/stickyStore';
 import { useVaultStore } from '../vault/vaultStore';
 import { useSettingsStore } from '../app/settings/settingsStore';
 import { flyCardToTab } from '../layout/flyToTab';
@@ -23,12 +21,12 @@ import { toRelativePath } from '../vault/syncEngine';
 import { buildFolderTree, type FolderNode } from '../vault/folderTree';
 import { FolderBubbleCluster } from './FolderBubbleCluster';
 import { ContinueCard } from './home/ContinueCard';
-import { PinnedPapers } from './home/PinnedPapers';
 import { listPdfSummaries } from '../pdf/pdfEngine';
 import { notePathForPdf } from '../pdf/pdfFiles';
 import { RecentGrid } from './home/RecentGrid';
 import { SectionLabel } from './home/SectionLabel';
-import { TagCloud } from './home/TagCloud';
+import { JournalFeed } from './home/JournalFeed';
+import { WeatherCard } from './home/WeatherCard';
 
 /** Two lead notes (ContinueCards, side by side), then two 2-column grids: four
  *  more recent notes/canvases and four recent PDFs. */
@@ -38,8 +36,6 @@ const RECENT_PDFS_COUNT = 4;
 /** Notes fetched before dropping the ones fused to a PDF (those are reached
  *  through the PDF), so enough remain to fill the grid. */
 const RECENT_NOTES_FETCH_LIMIT = 40;
-const TOP_TAGS_LIMIT = 16;
-const PINNED_PREVIEW_LIMIT = 4;
 /** Rough words-per-page used only for the "≈ N pages" fun stat — matches
  *  the commonly cited ~250-300 words/page for double-spaced manuscript
  *  text; not meant to be precise. */
@@ -50,13 +46,9 @@ interface HomeDashboardProps {
   noteCount: number;
   unresolvedCount: number;
   onSelect: (path: string) => void;
-  onSelectTag: (tag: string) => void;
   onNewNote: () => void;
   onNewCanvas: () => void;
   onImportPdf: () => void;
-  /** Opens the sticky board — the pinned-notes preview's only action, since
-   *  a sticky note has no vault path for `onSelect` to open. */
-  onOpenStickyBoard: () => void;
   workspaceNames: string[];
   currentWorkspace: string;
   workspaceColors: Record<string, string | null>;
@@ -130,8 +122,8 @@ function HeaderAction({ label, onClick, isRed = false }: HeaderActionProps) {
 
 /**
  * The HOME tab's content — a card-grid dashboard: a welcome header with the
- * two note creators beside it, a vault-wide tag strip, and pinned sticky
- * notes plus recent and most-linked notes in one card. Distinct from
+ * two note creators beside it, weather, a research feed, and recent notes
+ * and PDFs. Distinct from
  * HubView, which is the same idea scoped to one folder via a note's own
  * ```hub config block — this one is always vault-wide and never scoped.
  */
@@ -140,11 +132,9 @@ export function HomeDashboard({
   noteCount,
   unresolvedCount,
   onSelect,
-  onSelectTag,
   onNewNote,
   onNewCanvas,
   onImportPdf,
-  onOpenStickyBoard,
   workspaceNames,
   currentWorkspace,
   workspaceColors,
@@ -154,10 +144,8 @@ export function HomeDashboard({
   const [greeting] = useState(randomGreeting);
   const [recent, setRecent] = useState<RecentNoteEntry[]>([]);
   const [recentPdfs, setRecentPdfs] = useState<RecentNoteEntry[]>([]);
-  const [topTags, setTopTags] = useState<TagCount[]>([]);
   const [folderTree, setFolderTree] = useState<FolderNode | null>(null);
   const [vaultStats, setVaultStats] = useState<VaultStats | null>(null);
-  const stickyNotes = useStickyStore((state) => state.notes);
   const syncVersion = useVaultStore((state) => state.syncVersion);
   const userName = useSettingsStore((state) => state.userName);
   // Extra side margin grows as sidepanes close: 0 / 1 / 2 closed → +0 / +24 / +48px.
@@ -175,20 +163,14 @@ export function HomeDashboard({
     onSelect(path);
   }
 
-  const pinnedNotes = stickyNotes
-    .filter((note) => note.pinned)
-    .sort((a, b) => (a.pinnedOrder ?? 0) - (b.pinnedOrder ?? 0))
-    .slice(0, PINNED_PREVIEW_LIMIT);
-
   useEffect(() => {
     let cancelled = false;
 
     void (async () => {
       const db = await getDb(vaultRoot);
-      const [recentRows, pdfs, tagRows, allNotes, folderAbsolutePaths, stats] = await Promise.all([
+      const [recentRows, pdfs, allNotes, folderAbsolutePaths, stats] = await Promise.all([
         getRecentNotesRich(db, RECENT_NOTES_FETCH_LIMIT),
         listPdfSummaries(vaultRoot),
-        listTagsWithCounts(db),
         listNotes(db),
         invoke<string[]>('list_vault_folders', { root: vaultRoot }),
         getVaultStats(db),
@@ -202,7 +184,6 @@ export function HomeDashboard({
           .slice(0, RECENT_PDFS_COUNT)
           .map((pdf) => ({ id: pdf.id, path: pdf.path, title: pdf.title, modified: pdf.modified, tags: [], excerpt: '', isHub: false, isCanvas: false, isPdf: true, sizeBytes: pdf.sizeBytes })),
       );
-      setTopTags([...tagRows].sort((a, b) => b.count - a.count).slice(0, TOP_TAGS_LIMIT));
       const folderPaths = folderAbsolutePaths.map((path) => toRelativePath(vaultRoot, path));
       setFolderTree(buildFolderTree(allNotes, folderPaths));
       setVaultStats(stats);
@@ -316,9 +297,9 @@ export function HomeDashboard({
         </section>
       )}
 
-      <div className="grid grid-cols-1 gap-x-10 gap-y-8 pb-6 lg:grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)]">
+      <div className="grid grid-cols-1 gap-x-10 gap-y-8 pb-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.7fr)]">
         {(recent.length > LEAD_NOTES_COUNT || recentPdfs.length > 0) && (
-          <div className="flex min-w-0 flex-col gap-8">
+          <div className="flex min-w-0 flex-col gap-8 lg:col-start-2 lg:row-start-1">
             {recent.length > LEAD_NOTES_COUNT && (
               <section className="flex min-w-0 flex-col gap-3">
                 <SectionLabel label="Recent" meta={`${recent.length - LEAD_NOTES_COUNT}`} />
@@ -334,20 +315,16 @@ export function HomeDashboard({
           </div>
         )}
 
-        <aside className="flex min-w-0 flex-col gap-8 lg:col-start-2 lg:row-start-1">
-          {pinnedNotes.length > 0 && (
-            <section className="flex flex-col gap-3">
-              <SectionLabel label="Pinned" />
-              <PinnedPapers notes={pinnedNotes} onOpen={onOpenStickyBoard} />
-            </section>
-          )}
+        <aside className="flex min-w-0 flex-col gap-8 lg:col-start-1 lg:row-start-1">
+          <section className="flex flex-col gap-3">
+            <SectionLabel label="Weather" />
+            <WeatherCard />
+          </section>
 
-          {topTags.length > 0 && (
-            <section className="flex flex-col gap-3">
-              <SectionLabel label="Tags" />
-              <TagCloud tags={topTags} onSelect={onSelectTag} />
-            </section>
-          )}
+          <section className="flex flex-col gap-3">
+            <SectionLabel label="Journals" />
+            <JournalFeed />
+          </section>
         </aside>
       </div>
     </div>

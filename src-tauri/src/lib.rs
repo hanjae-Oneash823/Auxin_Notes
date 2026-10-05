@@ -22,6 +22,7 @@ pub fn run() {
         .plugin(tauri_plugin_sql::Builder::default().build())
         .plugin(tauri_plugin_single_instance::init(|_app, _args, _cwd| {}))
         .plugin(tauri_plugin_os::init())
+        .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .manage(WatcherState::default())
         .manage(TerminalState::default());
