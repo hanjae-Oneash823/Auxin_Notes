@@ -26,6 +26,8 @@ export interface AppConfig {
   tab_sessions: Record<string, TabSession>;
   /** Shown in the Home dashboard's "welcome" greeting. `null` means unset. */
   user_name: string | null;
+  /** How much time the top clock strip shows (a ClockRange); `null` means 24h. */
+  clock_range: string | null;
 }
 
 export async function getAppConfig(): Promise<AppConfig> {

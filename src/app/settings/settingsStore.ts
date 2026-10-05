@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { getAppConfig, patchAppConfig } from '../appConfig';
+import { DEFAULT_CLOCK_RANGE, toClockRange, type ClockRange } from '../../clock/clockGeometry';
 import {
   DEFAULT_FONT_FAMILY_ID,
   DEFAULT_FONT_SIZE_PX,
@@ -16,11 +17,14 @@ interface SettingsState {
   themeId: string;
   /** '' means unset — HomeDashboard hides its greeting in that case. */
   userName: string;
+  /** How much time the top clock strip shows. */
+  clockRange: ClockRange;
   initFromConfig: () => Promise<void>;
   setFontFamily: (id: string) => Promise<void>;
   setFontSize: (px: number) => Promise<void>;
   setTheme: (id: string) => Promise<void>;
   setUserName: (name: string) => Promise<void>;
+  setClockRange: (range: ClockRange) => Promise<void>;
   setSidebarWidthLeft: (widthPx: number) => Promise<void>;
   setSidebarWidthRight: (widthPx: number) => Promise<void>;
 }
@@ -54,6 +58,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   fontSizePx: DEFAULT_FONT_SIZE_PX,
   themeId: DEFAULT_THEME_ID,
   userName: '',
+  clockRange: DEFAULT_CLOCK_RANGE,
 
   initFromConfig: async () => {
     const config = await getAppConfig();
@@ -63,7 +68,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     const userName = config.user_name ?? '';
     applyFont(fontFamilyId, fontSizePx);
     applyTheme(themeId);
-    set({ fontFamilyId, fontSizePx, themeId, userName });
+    set({ fontFamilyId, fontSizePx, themeId, userName, clockRange: toClockRange(config.clock_range) });
 
     const root = document.documentElement.style;
     root.setProperty('--width-sidebar-left', `${config.sidebar_width_left ?? DEFAULT_SIDEBAR_WIDTH_PX}px`);
@@ -93,6 +98,11 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     const trimmed = name.trim();
     set({ userName: trimmed });
     await patchAppConfig({ user_name: trimmed || null });
+  },
+
+  setClockRange: async (range: ClockRange) => {
+    set({ clockRange: range });
+    await patchAppConfig({ clock_range: range });
   },
 
   // No local state for either — nothing reactively displays the panel

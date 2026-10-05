@@ -51,6 +51,10 @@ pub struct AppConfig {
     /// `None`/absent means no name set yet — the greeting hides itself.
     #[serde(default)]
     pub user_name: Option<String>,
+    /// How much time the top clock strip shows: `"24h"` (the default), `"12h"`,
+    /// `"4h"` or `"2h"`. `None`/absent means 24h (ClockStrip.tsx).
+    #[serde(default)]
+    pub clock_range: Option<String>,
 }
 
 fn config_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {

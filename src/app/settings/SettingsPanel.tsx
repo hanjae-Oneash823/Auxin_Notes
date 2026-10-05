@@ -1,3 +1,4 @@
+import { CLOCK_RANGES } from '../../clock/clockGeometry';
 import { useSettingsStore } from './settingsStore';
 import { FONT_FAMILY_OPTIONS, FONT_SIZE_PX_MIN, FONT_SIZE_PX_MAX } from '../../design/fontOptions';
 
@@ -5,7 +6,7 @@ const selectClassName =
   'border border-border bg-bg px-2 py-1 text-fg-prominent outline-none transition-colors duration-panel ease-panel focus:border-border-strong';
 
 export function SettingsPanel() {
-  const { fontFamilyId, fontSizePx, userName, setFontFamily, setFontSize, setUserName } = useSettingsStore();
+  const { fontFamilyId, fontSizePx, userName, clockRange, setFontFamily, setFontSize, setUserName, setClockRange } = useSettingsStore();
 
   return (
     <div
@@ -59,6 +60,25 @@ export function SettingsPanel() {
           className={selectClassName}
         />
       </label>
+
+      <div className="flex flex-col gap-1">
+        <span className="text-fg-muted">timeline range</span>
+        <div className="flex border border-border">
+          {CLOCK_RANGES.map((range) => (
+            <button
+              key={range}
+              type="button"
+              aria-pressed={range === clockRange}
+              onClick={() => void setClockRange(range)}
+              className={`flex-1 px-1 py-1 transition-colors duration-panel ease-panel ${
+                range === clockRange ? 'bg-border-subtle text-fg-prominent' : 'text-fg-muted hover:text-fg-prominent'
+              }`}
+            >
+              {range}
+            </button>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
