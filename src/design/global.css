@@ -498,3 +498,42 @@ body {
     -webkit-text-fill-color: currentColor;
   }
 }
+
+/* Dashes running along a selected card's arrows, from source to target. */
+@keyframes canvas-arrow-flow {
+  to {
+    stroke-dashoffset: -16;
+  }
+}
+.canvas-arrow-flow {
+  stroke-dasharray: 3 13;
+  animation: canvas-arrow-flow 900ms linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .canvas-arrow-flow {
+    animation: none;
+  }
+}
+
+/* A search hit inside a card's text. */
+.canvas-search-hit {
+  background: color-mix(in srgb, var(--accent-link) 50%, transparent);
+  border-radius: 2px;
+}
+
+/* Planner page open/close (planner/PlannerOverlay.tsx). The exit duration must
+   match EXIT_MS there. */
+@keyframes planner-in {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes planner-out {
+  from { opacity: 1; transform: translateY(0); }
+  to { opacity: 0; transform: translateY(12px); }
+}
+.planner-in { animation: planner-in 240ms var(--ease-panel); }
+.planner-out { animation: planner-out 180ms var(--ease-panel) forwards; }
+@media (prefers-reduced-motion: reduce) {
+  .planner-in,
+  .planner-out { animation: none; }
+}
