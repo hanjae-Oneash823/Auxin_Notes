@@ -8,9 +8,9 @@ export const SIDEBAR_TOGGLE_EASING = 'cubic-bezier(0.32, 0.72, 0, 1)';
 // Small buffer past the transition so `isToggling` never clears mid-animation.
 const TOGGLE_SETTLE_BUFFER_MS = 40;
 
-/** Left-to-right order of the icon bar. `links` shows backlinks, unresolved links and the tag browser together;
+/** Left-to-right order of the icon bar. `files` holds the folder tree and the file browser behind a toggle; `links` shows the note's contents, backlinks, unresolved links and the tag browser together;
  *  `terminal` is the shell (kept mounted while hidden — see App.tsx). */
-export const RIGHT_PANEL_LAYERS = ['search', 'files', 'browser', 'terminal', 'contents', 'links'] as const;
+export const RIGHT_PANEL_LAYERS = ['search', 'files', 'terminal', 'links', 'planner'] as const;
 export type RightPanelLayer = (typeof RIGHT_PANEL_LAYERS)[number];
 const DEFAULT_RIGHT_LAYER: RightPanelLayer = 'files';
 
@@ -90,8 +90,9 @@ export const usePanelLayoutStore = create<PanelLayoutState>((set, get) => ({
     const config = await getAppConfig();
     const isLeftSidebarOpen = config.left_sidebar_hidden !== true;
     const isRightSidebarOpen = config.right_sidebar_hidden !== true;
-    // 'tags' was its own layer before it merged into 'links'; keep those users there.
-    const savedLayer = config.right_panel_layer === 'tags' ? 'links' : config.right_panel_layer;
+    // 'tags'/'contents' merged into 'links' and 'browser' into 'files'; keep those users there.
+    const saved = config.right_panel_layer;
+    const savedLayer = saved === 'tags' || saved === 'contents' ? 'links' : saved === 'browser' ? 'files' : saved;
     const activeRightLayer = isRightPanelLayer(savedLayer) ? savedLayer : DEFAULT_RIGHT_LAYER;
     applyHiddenAttributes(isLeftSidebarOpen, isRightSidebarOpen);
     set({ isLeftSidebarOpen, isRightSidebarOpen, activeRightLayer });

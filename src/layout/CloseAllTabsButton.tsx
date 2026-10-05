@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { X } from '@phosphor-icons/react';
+import { Broom } from '@phosphor-icons/react';
 import { useHoverTooltip } from './HoverTooltip';
 
 interface CloseAllTabsButtonProps {
@@ -39,7 +39,7 @@ export function CloseAllTabsButton({ isDisabled, onConfirm }: CloseAllTabsButton
         }`}
         style={{ fontSize: '0.75rem' }}
       >
-        {isArmed ? 'u sure?' : <X size={14} />}
+        {isArmed ? 'u sure?' : <Broom size={15} />}
       </button>
       {tooltip}
     </>

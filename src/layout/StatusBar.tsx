@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { BookOpen, Moon, PencilLine, Sun } from '@phosphor-icons/react';
 import { SettingsPanel } from '../app/settings/SettingsPanel';
 import { useSettingsStore } from '../app/settings/settingsStore';
+import { TrashFooterButton } from './TrashFooterButton';
 import { formatCount, type NoteStats } from '../notes/noteStats';
 
 const WORDS_PER_MINUTE = 200;
@@ -10,6 +11,10 @@ interface StatusBarProps {
   vaultRoot: string;
   noteCount: number;
   unresolvedCount: number;
+  /** Items currently in the bin. */
+  trashCount: number;
+  onOpenTrash: () => void;
+  onEmptyTrash: () => void;
   /** Length of the open note; null when the active tab isn't a note. */
   activeNoteStats: NoteStats | null;
   isReadingMode: boolean;
@@ -23,6 +28,9 @@ export function StatusBar({
   vaultRoot,
   noteCount,
   unresolvedCount,
+  trashCount,
+  onOpenTrash,
+  onEmptyTrash,
   activeNoteStats,
   isReadingMode,
   onToggleReadingMode,
@@ -56,11 +64,14 @@ export function StatusBar({
           )}
         </span>
       )}
+      <span className={activeNoteStats ? '' : 'ml-auto'}>
+        <TrashFooterButton trashCount={trashCount} onOpenTrash={onOpenTrash} onEmptyTrash={onEmptyTrash} />
+      </span>
       <button
         type="button"
         onClick={onToggleReadingMode}
         title={isReadingMode ? 'reading mode — click to switch to writing' : 'writing mode — click to switch to reading'}
-        className={`${activeNoteStats ? '' : 'ml-auto '}flex items-center text-fg-footer transition-colors duration-panel ease-panel hover:text-fg-footer-prominent`}
+        className={`flex items-center text-fg-footer transition-colors duration-panel ease-panel hover:text-fg-footer-prominent`}
       >
         {isReadingMode ? <BookOpen size={17} weight="regular" /> : <PencilLine size={17} weight="regular" />}
       </button>

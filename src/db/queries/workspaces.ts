@@ -12,8 +12,6 @@ export interface SavedWorkspace {
   color?: string | null;
   /** Vault-relative; absent in workspaces saved before flags existed. */
   flagged?: string[];
-  /** Absent in workspaces saved before scratchpads existed. */
-  scratchpad?: string;
 }
 
 export interface SavedWorkspaces {

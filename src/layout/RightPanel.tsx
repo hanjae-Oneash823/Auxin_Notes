@@ -1,21 +1,22 @@
 import { motion } from 'framer-motion';
-import { FolderOpen, LinkSimple, ListBullets, MagnifyingGlass, Terminal, Tree, type Icon } from '@phosphor-icons/react';
+import { CalendarCheck, LinkSimple, MagnifyingGlass, Terminal, Tree, type Icon } from '@phosphor-icons/react';
 import { useHoverTooltip } from './HoverTooltip';
 import { RIGHT_PANEL_LAYERS, usePanelLayoutStore, type RightPanelLayer } from './panelLayoutStore';
 import { SidebarSideIcon } from './WindowChrome';
 
 interface LayerMeta {
   label: string;
+  /** What the active tab's pill reads. */
+  shortLabel: string;
   Icon: Icon;
 }
 
 const LAYER_META: Record<RightPanelLayer, LayerMeta> = {
-  files: { label: 'File tree', Icon: Tree },
-  browser: { label: 'Browser', Icon: FolderOpen },
-  search: { label: 'Search', Icon: MagnifyingGlass },
-  contents: { label: 'Contents', Icon: ListBullets },
-  links: { label: 'Links & Tags', Icon: LinkSimple },
-  terminal: { label: 'Terminal', Icon: Terminal },
+  files: { label: 'Files', shortLabel: 'Files', Icon: Tree },
+  search: { label: 'Search', shortLabel: 'Search', Icon: MagnifyingGlass },
+  links: { label: 'Contents, Links & Tags', shortLabel: 'Links', Icon: LinkSimple },
+  terminal: { label: 'Terminal', shortLabel: 'Terminal', Icon: Terminal },
+  planner: { label: 'Planner', shortLabel: 'Planner', Icon: CalendarCheck },
 };
 
 interface LayerButtonProps {
@@ -25,12 +26,13 @@ interface LayerButtonProps {
 }
 
 function LayerButton({ layer, isActive, onSelect }: LayerButtonProps) {
-  const { label, Icon: LayerIcon } = LAYER_META[layer];
+  const { label, shortLabel, Icon: LayerIcon } = LAYER_META[layer];
   const { hoverProps, hide, tooltip } = useHoverTooltip(label);
 
   return (
     <>
-      <button
+      <motion.button
+        layout
         type="button"
         aria-label={label}
         aria-pressed={isActive}
@@ -39,25 +41,36 @@ function LayerButton({ layer, isActive, onSelect }: LayerButtonProps) {
           onSelect(layer);
         }}
         {...hoverProps}
-        className="group/layer relative flex h-9 flex-1 items-center justify-center"
+        className={`group/layer relative flex h-9 items-center justify-center ${isActive ? 'shrink-0 px-1' : 'flex-1'}`}
       >
-        {/* The selected layer is a green square with a black icon. The square is
-            one shared element (layoutId) that glides from tab to tab. */}
+        {/* The selected layer is a pill with its icon and name. The pill is one
+            shared element (layoutId) that glides from tab to tab. */}
         {isActive && (
           <motion.span
             layoutId="right-layer-indicator"
             transition={{ type: 'spring', stiffness: 520, damping: 40 }}
-            className="absolute h-[26px] w-[26px] rounded-row bg-accent-neon-green"
+            className="absolute inset-x-0 h-[26px] rounded-row border border-border-strong bg-bg-packet-active"
           />
         )}
         <span
-          className={`relative flex h-[26px] w-[26px] items-center justify-center transition-colors duration-panel ease-panel ${
-            isActive ? 'text-black' : 'text-fg-faint group-hover/layer:text-fg-prominent'
+          className={`relative flex h-[26px] items-center gap-1.5 px-2 transition-colors duration-panel ease-panel ${
+            isActive ? 'text-fg-prominent' : 'text-fg-faint group-hover/layer:text-fg-prominent'
           }`}
         >
           <LayerIcon size={16} weight={isActive ? 'bold' : 'regular'} />
+          {isActive && (
+            <motion.span
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ duration: 0.15 }}
+              className="font-medium"
+              style={{ fontSize: '0.78rem' }}
+            >
+              {shortLabel}
+            </motion.span>
+          )}
         </span>
-      </button>
+      </motion.button>
       {tooltip}
     </>
   );
