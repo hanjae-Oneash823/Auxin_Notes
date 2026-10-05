@@ -94,6 +94,10 @@ export function optimizeLayout(
     if (source === undefined || target === undefined || source === target) return [];
     const a = cards[source];
     const b = cards[target];
+    // A pinned card can't move, so an arrow to one would only drag the movers
+    // toward it (a group with one arrow to the outside slides away). Pinned cards
+    // still count as obstacles through their nodes.
+    if (!isMovable(a) || !isMovable(b)) return [];
     const length = (a.w + b.w) / 4 + (a.h + b.h) / 4 + LINK_SLACK_PX;
     if (!arrow.label) return [{ source, target, length }];
 

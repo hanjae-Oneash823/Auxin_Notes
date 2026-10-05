@@ -12,6 +12,11 @@ export interface Point {
   y: number;
 }
 
+/** Keeps only the larger component of `delta`: a ⇧-drag moves along one axis. */
+export function lockToAxis(delta: Point): Point {
+  return Math.abs(delta.x) >= Math.abs(delta.y) ? { x: delta.x, y: 0 } : { x: 0, y: delta.y };
+}
+
 export function rectCenter(rect: Rect): Point {
   return { x: rect.x + rect.w / 2, y: rect.y + rect.h / 2 };
 }

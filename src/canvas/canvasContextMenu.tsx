@@ -1,10 +1,12 @@
-import { ArrowCounterClockwise, ArrowSquareOut, Copy, DownloadSimple, FilePdf, FileText, Image, Note, TextT, Warning, LinkBreak, Plus, SelectionAll, TrashSimple } from '@phosphor-icons/react';
+import { ArrowCounterClockwise, FrameCorners, ArrowSquareOut, Copy, DownloadSimple, FilePdf, FileText, Image, Note, TextT, Warning, LinkBreak, Plus, SelectionAll, Stack, TrashSimple } from '@phosphor-icons/react';
 import type { ContextMenuItem } from '../layout/ContextMenu';
 import type { CanvasCard } from '../vault/canvasTypes';
 
 const ICON_SIZE = 13;
 
 export interface CardMenuOptions {
+  /** Reading mode: only the ways of opening a card, none of the edits. */
+  isReadOnly: boolean;
   card: CanvasCard;
   /** How many cards the menu acts on — more than 1 when the right-clicked
    *  card sits inside a multi-card selection. */
@@ -14,11 +16,15 @@ export interface CardMenuOptions {
   onOpenNote: () => void;
   onPromote: () => void;
   onDuplicate: () => void;
+  onGroup: () => void;
+  /** Set only when some target card is in a group. */
+  onRemoveFromGroup?: () => void;
   onRemoveArrows: () => void;
   onDelete: () => void;
 }
 
 export interface BackgroundMenuOptions {
+  isReadOnly: boolean;
   hasCards: boolean;
   onNewCard: () => void;
   onExportImage: () => void;
@@ -27,6 +33,7 @@ export interface BackgroundMenuOptions {
   onAddWarning: () => void;
   onAddNote: () => void;
   onAddPdf: () => void;
+  onAddCanvas: () => void;
   onAddImage: () => void;
   onSelectAll: () => void;
   onResetView: () => void;
@@ -41,9 +48,10 @@ export function buildCardMenu(options: CardMenuOptions): ContextMenuItem[] {
   const isGroup = targetCount > 1;
   const items: ContextMenuItem[] = [];
 
-  if (!isGroup && (card.content.type === 'note' || card.content.type === 'pdf')) {
-    items.push({ label: card.content.type === 'pdf' ? 'Open PDF' : 'Open note', icon: <ArrowSquareOut size={ICON_SIZE} />, onSelect: options.onOpenNote });
+  if (!isGroup && (card.content.type === 'note' || card.content.type === 'pdf' || card.content.type === 'canvas')) {
+    items.push({ label: card.content.type === 'pdf' ? 'Open PDF' : card.content.type === 'canvas' ? 'Open canvas' : 'Open note', icon: <ArrowSquareOut size={ICON_SIZE} />, onSelect: options.onOpenNote });
   }
+  if (options.isReadOnly) return items;
   if (!isGroup && card.content.type === 'ghost') {
     items.push({ label: 'Create note', icon: <FileText size={ICON_SIZE} />, onSelect: options.onPromote });
   }
@@ -53,6 +61,14 @@ export function buildCardMenu(options: CardMenuOptions): ContextMenuItem[] {
       icon: <Copy size={ICON_SIZE} />,
       onSelect: options.onDuplicate,
     });
+  }
+  items.push({
+    label: isGroup ? `Group ${targetCount} cards` : 'Group card',
+    icon: <FrameCorners size={ICON_SIZE} />,
+    onSelect: options.onGroup,
+  });
+  if (options.onRemoveFromGroup) {
+    items.push({ label: 'Remove from group', icon: <FrameCorners size={ICON_SIZE} />, onSelect: options.onRemoveFromGroup });
   }
   if (arrowCount > 0) {
     items.push({
@@ -92,7 +108,23 @@ export function buildArrowMenu(options: ArrowMenuOptions): ContextMenuItem[] {
   return items;
 }
 
+export interface GroupMenuOptions {
+  isReadOnly: boolean;
+  onSelectContents: () => void;
+  onUngroup: () => void;
+}
+
+export function buildGroupMenu(options: GroupMenuOptions): ContextMenuItem[] {
+  const select: ContextMenuItem = { label: 'Select contents', icon: <SelectionAll size={ICON_SIZE} />, onSelect: options.onSelectContents };
+  if (options.isReadOnly) return [select];
+  return [
+    select,
+    { label: 'Ungroup', icon: <LinkBreak size={ICON_SIZE} />, onSelect: options.onUngroup },
+  ];
+}
+
 export function buildBackgroundMenu(options: BackgroundMenuOptions): ContextMenuItem[] {
+  if (options.isReadOnly) return buildReadOnlyBackgroundMenu(options);
   const items: ContextMenuItem[] = [
     { label: 'New card here', icon: <Plus size={ICON_SIZE} />, onSelect: options.onNewCard },
     { label: 'New title', icon: <TextT size={ICON_SIZE} />, onSelect: options.onAddTitle },
@@ -100,8 +132,19 @@ export function buildBackgroundMenu(options: BackgroundMenuOptions): ContextMenu
     { label: 'New warning', icon: <Warning size={ICON_SIZE} />, onSelect: options.onAddWarning },
     { label: 'Add note…', icon: <FileText size={ICON_SIZE} />, onSelect: options.onAddNote },
     { label: 'Add PDF…', icon: <FilePdf size={ICON_SIZE} />, onSelect: options.onAddPdf },
+    { label: 'Add canvas…', icon: <Stack size={ICON_SIZE} />, onSelect: options.onAddCanvas },
   ];
   items.push({ label: 'Add image…', icon: <Image size={ICON_SIZE} />, onSelect: options.onAddImage });
+  if (options.hasCards) {
+    items.push({ label: 'Select all', icon: <SelectionAll size={ICON_SIZE} />, onSelect: options.onSelectAll });
+    items.push({ label: 'Export as image…', icon: <DownloadSimple size={ICON_SIZE} />, onSelect: options.onExportImage });
+  }
+  items.push({ label: 'Reset view', icon: <ArrowCounterClockwise size={ICON_SIZE} />, onSelect: options.onResetView });
+  return items;
+}
+
+function buildReadOnlyBackgroundMenu(options: BackgroundMenuOptions): ContextMenuItem[] {
+  const items: ContextMenuItem[] = [];
   if (options.hasCards) {
     items.push({ label: 'Select all', icon: <SelectionAll size={ICON_SIZE} />, onSelect: options.onSelectAll });
     items.push({ label: 'Export as image…', icon: <DownloadSimple size={ICON_SIZE} />, onSelect: options.onExportImage });

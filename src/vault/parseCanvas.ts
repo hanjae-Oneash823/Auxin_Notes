@@ -37,11 +37,25 @@ export function parseCanvasDocument(raw: string): CanvasDocument {
   return {
     version: CURRENT_VERSION,
     cards: cards as CanvasCard[],
-    groups: (Array.isArray(groups) ? groups : []) as CanvasGroup[],
+    groups: Array.isArray(groups) ? groups.filter(isCanvasGroup) : [],
     arrows: arrows as CanvasArrow[],
     // Hex only: it ends up in an SVG `stroke`/`fill`, so anything else is dropped.
     ...(typeof arrowColor === 'string' && HEX_COLOR.test(arrowColor) ? { arrowColor } : {}),
   };
+}
+
+/** Drops anything that isn't a well-formed group (including the short-lived
+ *  x/y/w/h frame shape) rather than letting bad data reach the board. */
+function isCanvasGroup(value: unknown): value is CanvasGroup {
+  if (typeof value !== 'object' || value === null) return false;
+  const g = value as Record<string, unknown>;
+  return (
+    typeof g.id === 'string' &&
+    typeof g.label === 'string' &&
+    Array.isArray(g.cardIds) &&
+    g.cardIds.every((cardId) => typeof cardId === 'string') &&
+    (g.groupIds === undefined || (Array.isArray(g.groupIds) && g.groupIds.every((groupId) => typeof groupId === 'string')))
+  );
 }
 
 /**
@@ -97,7 +111,7 @@ function resolveArrowTargetTitle(doc: CanvasDocument, arrow: CanvasArrow): strin
  *  has no body of its own. */
 export function canvasSearchableBody(doc: CanvasDocument): string {
   return doc.cards
-    .filter((card): card is CanvasCard & { content: { type: 'inline'; body: string } } => card.content.type === 'inline')
-    .map((card) => card.content.body)
+    .filter((card): card is CanvasCard & { content: { type: 'inline'; body: string; title?: string } } => card.content.type === 'inline')
+    .map((card) => (card.content.title ? `${card.content.title}\n${card.content.body}` : card.content.body))
     .join('\n\n');
 }

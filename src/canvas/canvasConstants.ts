@@ -11,6 +11,14 @@ export const DEFAULT_CARD_WIDTH = 200;
 export const TITLE_CARD_MAX_WIDTH = 720;
 export const TITLE_CARD_MIN_WIDTH = 48;
 export const OPTIMIZE_ANIMATION_MS = 400;
+/** When cards are selected, the ones (and arrows) unrelated to the selection fade to this opacity. */
+export const DIMMED_CARD_OPACITY = 0.3;
+export const DIMMED_ARROW_OPACITY = 0.15;
+/** A dragged card snaps to another's edge or center within this many screen px. */
+export const SNAP_THRESHOLD_PX = 6;
+export const SNAP_GUIDE_COLOR = '#ff6ea8';
+/** How far a guide line runs past the cards it joins, in world px. */
+export const SNAP_GUIDE_OVERSHOOT_PX = 16;
 /** How many times "optimize" re-runs the layout, each pass animated. */
 export const OPTIMIZE_PASSES = 4;
 /** One press of the layout toolbar's rotate button. */
@@ -43,6 +51,8 @@ export const VIEW_ANIMATION_MS = 300;
 export const FIT_PADDING_PX = 80;
 /** Height the bottom toolbars cover; "zoom to fit" frames the cards above it. */
 export const TOOLBAR_INSET_PX = 90;
+/** Screen px the find-on-board box covers at the top edge. */
+export const SEARCH_BAR_INSET_PX = 52;
 
 /** Pointer-travel distance (screen px) below which a background or card
  *  pointerdown/up pair counts as a plain click rather than a drag — shared
@@ -70,8 +80,8 @@ export const ARROW_COLOR_CHOICES = [
 /** Labels wrap onto further lines past this width (and stop at the line cap, ending in "…"). */
 export const ARROW_LABEL_MAX_WIDTH = 140;
 export const ARROW_LABEL_MAX_LINES = 4;
-export const ARROW_LABEL_FONT_PX = 12;
-export const ARROW_LABEL_LINE_HEIGHT_PX = 14;
+export const ARROW_LABEL_FONT_PX = 14;
+export const ARROW_LABEL_LINE_HEIGHT_PX = 16;
 /** Width of the box a label is typed into. */
 export const ARROW_LABEL_INPUT_WIDTH = ARROW_LABEL_MAX_WIDTH;
 export const ARROW_STROKE_PX = 1.5;
@@ -82,3 +92,13 @@ export const ARROW_HIT_WIDTH_PX = 14;
 /** World-space offset a duplicated card lands at, so the copy is visibly
  *  distinct from (rather than hidden under) its original. */
 export const DUPLICATE_OFFSET_PX = 24;
+
+/** Height of a group frame's title strip (the drag handle). */
+export const GROUP_HEADER_H = 38;
+/** Breathing room between a group's cards and its frame's edge. */
+export const GROUP_PADDING_PX = 24;
+/** Least clear space a layout leaves between a group's frame and anything else. */
+export const GROUP_CLEARANCE_PX = 32;
+
+/** A group whose frame is smaller than this on screen (longest side) collapses to its title. */
+export const GROUP_SUMMARY_MAX_SCREEN_PX = 340;

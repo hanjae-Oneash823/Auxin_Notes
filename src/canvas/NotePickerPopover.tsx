@@ -9,8 +9,8 @@ interface NoteResult {
 
 interface NotePickerPopoverProps {
   vaultRoot: string;
-  /** What to search: indexed notes, or PDFs (listed from disk). */
-  kind: 'note' | 'pdf';
+  /** What to search: indexed notes, PDFs (listed from disk), or other canvases. */
+  kind: 'note' | 'pdf' | 'canvas';
   x: number;
   y: number;
   onSelect: (path: string) => void;
@@ -44,7 +44,7 @@ export function NotePickerPopover({ vaultRoot, kind, x, y, onSelect, onClose }: 
       } else {
         const db = await getDb(vaultRoot);
         rows = await db.select<NoteResult[]>(
-          'SELECT title, path FROM notes WHERE is_deleted = 0 AND is_canvas = 0 AND title LIKE ? ORDER BY title LIMIT 20',
+          `SELECT title, path FROM notes WHERE is_deleted = 0 AND is_canvas = ${kind === 'canvas' ? 1 : 0} AND title LIKE ? ORDER BY title LIMIT 20`,
           [`%${query}%`],
         );
       }
@@ -116,13 +116,13 @@ export function NotePickerPopover({ vaultRoot, kind, x, y, onSelect, onClose }: 
             if (target) onSelect(target.path);
           }
         }}
-        placeholder={kind === 'pdf' ? 'search PDFs…' : 'search notes…'}
+        placeholder={kind === 'pdf' ? 'search PDFs…' : kind === 'canvas' ? 'search canvases…' : 'search notes…'}
         className="border-b border-border bg-bg px-2 py-1.5 text-fg-prominent outline-none"
-        style={{ fontSize: '0.8rem' }}
+        style={{ fontSize: '0.9rem' }}
       />
       <div className="max-h-[240px] overflow-y-auto py-1">
         {results.length === 0 && (
-          <div className="px-2 py-1.5 text-fg-faint" style={{ fontSize: '0.75rem' }}>
+          <div className="px-2 py-1.5 text-fg-faint" style={{ fontSize: '0.84rem' }}>
             no matches
           </div>
         )}
@@ -136,7 +136,7 @@ export function NotePickerPopover({ vaultRoot, kind, x, y, onSelect, onClose }: 
             className={`block w-full truncate px-2 py-1.5 text-left transition-colors duration-panel ease-panel ${
               index === highlightIndex ? 'bg-border-subtle text-fg-prominent' : 'text-fg-muted hover:bg-border-subtle hover:text-fg-prominent'
             }`}
-            style={{ fontSize: '0.8rem' }}
+            style={{ fontSize: '0.9rem' }}
           >
             {row.title}
           </button>

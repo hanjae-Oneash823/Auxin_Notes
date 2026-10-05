@@ -19,7 +19,7 @@ export interface CanvasDocument {
 }
 
 export type CanvasCardContent =
-  | { type: 'inline'; body: string }
+  | { type: 'inline'; body: string; /** Optional heading shown above the body. */ title?: string }
   | { type: 'note'; path: string }
   | { type: 'ghost'; title: string }
   | { type: 'title'; text: string }
@@ -29,6 +29,8 @@ export type CanvasCardContent =
   | { type: 'warning'; text: string }
   /** Link to a `.pdf`; `path` is vault-relative. */
   | { type: 'pdf'; path: string }
+  /** Another `.axcanvas`, shown as a live miniature; `path` is vault-relative. */
+  | { type: 'canvas'; path: string }
   /** `path` is vault-relative (`attachments/…`), like a markdown image link. */
   | { type: 'image'; path: string; /** Display width in world px; default `IMAGE_CARD_WIDTH`. */ width?: number; caption?: string };
 
@@ -53,10 +55,17 @@ export interface CanvasArrow {
   label?: string;
 }
 
+/** A labeled frame that contains cards and, optionally, other groups. It has
+ *  no geometry of its own: the frame is drawn around its members, so it grows
+ *  and shrinks with them. A card is in at most one group, and a group in at
+ *  most one parent. */
 export interface CanvasGroup {
   id: string;
   label: string;
+  /** Cards directly in this group (not those of its child groups). */
   cardIds: string[];
+  /** Child groups nested inside this one. */
+  groupIds?: string[];
 }
 
 export function emptyCanvasDocument(): CanvasDocument {

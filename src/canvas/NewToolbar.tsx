@@ -1,5 +1,5 @@
 import { useRef } from 'react';
-import { FilePdf, FileText, Image, Note, TextAa, TextT, Warning } from '@phosphor-icons/react';
+import { FilePdf, FileText, Image, Note, Stack, TextAa, TextT, Warning } from '@phosphor-icons/react';
 import { PacketIconButton } from '../layout/SidebarPacket';
 import type { Point } from './canvasGeometry';
 import { STICKY_CARD_BG, WARNING_CARD_BG } from './canvasConstants';
@@ -26,12 +26,13 @@ interface NewToolbarProps {
   /** Open the note/PDF picker at a screen position. */
   onPickNote: (anchor: Point) => void;
   onPickPdf: (anchor: Point) => void;
+  onPickCanvas: (anchor: Point) => void;
   onAddImage: () => void;
 }
 
 /** Floating "new" tool strip: one button per kind of card the board can hold.
  *  New cards land at the center of the current view. */
-export function NewToolbar({ onAddText, onAddTitle, onAddSticky, onAddWarning, onPickNote, onPickPdf, onAddImage }: NewToolbarProps) {
+export function NewToolbar({ onAddText, onAddTitle, onAddSticky, onAddWarning, onPickNote, onPickPdf, onPickCanvas, onAddImage }: NewToolbarProps) {
   const barRef = useRef<HTMLDivElement>(null);
 
   function pickerAnchor(): Point {
@@ -61,6 +62,9 @@ export function NewToolbar({ onAddText, onAddTitle, onAddSticky, onAddWarning, o
       </PacketIconButton>
       <PacketIconButton title="Add PDF…" color={COLOR_PDF} onClick={() => onPickPdf(pickerAnchor())}>
         <FilePdf size={ICON_SIZE} />
+      </PacketIconButton>
+      <PacketIconButton title="Add canvas…" color={COLOR_NOTE} onClick={() => onPickCanvas(pickerAnchor())}>
+        <Stack size={ICON_SIZE} />
       </PacketIconButton>
       <PacketIconButton title="Add image…" color={COLOR_IMAGE} onClick={onAddImage}>
         <Image size={ICON_SIZE} />

@@ -12,12 +12,17 @@ const FALLBACK_TITLE = 'Untitled';
  *  filesystem-unsafe characters stripped, as a starting title. */
 function deriveTitleFromBody(body: string): string {
   const firstLine = body.split('\n').find((line) => line.trim().length > 0) ?? '';
-  const stripped = firstLine.replace(/^#{1,6}\s+/, '').trim();
-  const sanitized = stripped
+  return sanitizeTitle(firstLine.replace(/^#{1,6}\s+/, '')) || FALLBACK_TITLE;
+}
+
+/** Filesystem-unsafe characters and runs of whitespace collapsed, and length capped. */
+function sanitizeTitle(text: string): string {
+  return text
     .replace(/[\\/:*?"<>|]/g, ' ')
     .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, MAX_DERIVED_TITLE_LENGTH)
     .trim();
-  return sanitized.slice(0, MAX_DERIVED_TITLE_LENGTH).trim() || FALLBACK_TITLE;
 }
 
 /** Appends " 2", " 3", ... until `folder/title.md` names a path with no
@@ -63,7 +68,10 @@ export async function promoteCard(
   const card = doc.cards.find((c) => c.id === cardId);
   if (!card || (card.content.type !== 'inline' && card.content.type !== 'ghost')) return doc;
 
-  const title = card.content.type === 'ghost' ? card.content.title : deriveTitleFromBody(card.content.body);
+  const title =
+    card.content.type === 'ghost'
+      ? card.content.title
+      : sanitizeTitle(card.content.title ?? '') || deriveTitleFromBody(card.content.body);
   const initialBody = card.content.type === 'inline' ? card.content.body : '';
 
   const folder = dirname(canvasRelativePath);

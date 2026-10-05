@@ -1,11 +1,15 @@
 import { useMemo, useState } from 'react';
 import type { ArrowRoute } from './arrowPath';
 import { layoutArrowLabel } from './arrowLabelLayout';
-import { ARROW_HIT_WIDTH_PX, ARROW_HOVER_STROKE_PX, ARROW_LABEL_FONT_PX, ARROW_LABEL_LINE_HEIGHT_PX, ARROW_STROKE_PX } from './canvasConstants';
+import { ARROW_HIT_WIDTH_PX, DIMMED_ARROW_OPACITY, ARROW_HOVER_STROKE_PX, ARROW_LABEL_FONT_PX, ARROW_LABEL_LINE_HEIGHT_PX, ARROW_STROKE_PX } from './canvasConstants';
 
 interface CanvasArrowProps {
   arrowId: string;
   color: string;
+  /** Unrelated to the current selection: drawn faded. */
+  isDimmed: boolean;
+  /** A selected card touches this arrow: dashes run along it, source to target. */
+  isFlowing: boolean;
   route: ArrowRoute;
   label?: string;
   /** Double-clicking the arrow asks to edit its label. */
@@ -40,11 +44,11 @@ export function CanvasArrowDefs({ color }: { color: string }) {
  *  sees its own final path. The route ends in a straight run at whatever
  *  angle the line arrives, and the marker's `orient="auto-start-reverse"`
  *  turns the arrowhead to match — no manual angle math needed. */
-export function CanvasArrow({ arrowId, color, route, label, onEditLabel }: CanvasArrowProps) {
+export function CanvasArrow({ arrowId, color, isDimmed, isFlowing, route, label, onEditLabel }: CanvasArrowProps) {
   const [isHovered, setIsHovered] = useState(false);
   const labelLines = useMemo(() => (label ? layoutArrowLabel(label).lines : []), [label]);
   return (
-    <g>
+    <g className="transition-opacity duration-panel ease-panel" style={{ opacity: isDimmed ? DIMMED_ARROW_OPACITY : 1 }}>
       <path
         d={route.path}
         fill="none"
@@ -52,6 +56,18 @@ export function CanvasArrow({ arrowId, color, route, label, onEditLabel }: Canva
         strokeWidth={isHovered ? ARROW_HOVER_STROKE_PX : ARROW_STROKE_PX}
         markerEnd={`url(#${ARROWHEAD_ID})`}
       />
+      {isFlowing && (
+        <path
+          d={route.path}
+          fill="none"
+          className="canvas-arrow-flow"
+          strokeWidth={ARROW_STROKE_PX + 0.5}
+          strokeLinecap="round"
+          // The arrow's own color pushed toward the text color: lighter on the
+          // dark theme, darker on the light one, so it stands out on any arrow.
+          style={{ stroke: `color-mix(in srgb, ${color} 40%, var(--fg-prominent))`, pointerEvents: 'none' }}
+        />
+      )}
       {/* The board's <svg> is pointer-events-none so it never blocks the
           background; this transparent, wider copy of the path opts back in
           (stroke only) so an arrow can be hovered and right-clicked —

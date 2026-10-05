@@ -320,7 +320,7 @@ async function rewriteCanvasFile(
       changed = true;
       return { ...card, content: { ...card.content, body: applyEditsToText(card.content.body, edits) } };
     }
-    if (card.content.type === 'note' && oldPath && newPath && card.content.path === oldPath) {
+    if ((card.content.type === 'note' || card.content.type === 'canvas') && oldPath && newPath && card.content.path === oldPath) {
       changed = true;
       return { ...card, content: { ...card.content, path: newPath } };
     }

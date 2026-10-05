@@ -1,4 +1,5 @@
-import { ArrowClockwise, ArrowCounterClockwise, FlipHorizontal, FlipVertical, MagicWand } from '@phosphor-icons/react';
+import { useRef } from 'react';
+import { ArrowClockwise, ArrowCounterClockwise, FlipHorizontal, FlipVertical, MagicWand, TreeStructure } from '@phosphor-icons/react';
 import { PacketIconButton } from '../layout/SidebarPacket';
 import { OPTIMIZE_PASSES, ROTATE_STEP_DEGREES } from './canvasConstants';
 import { ToolbarDivider, ToolbarShell } from './ToolbarShell';
@@ -13,6 +14,8 @@ interface LayoutToolbarProps {
   /** Which optimize pass is running, or null when idle. Locks every tool. */
   optimizePass: number | null;
   onOptimize: () => void;
+  /** Opens the arrangement menu; `anchor` is the button's top-left in screen px. */
+  onArrange: (anchor: { x: number; y: number }) => void;
   onFlip: (axis: 'horizontal' | 'vertical') => void;
   /** `1` turns clockwise, `-1` counterclockwise. */
   onRotate: (direction: 1 | -1) => void;
@@ -20,7 +23,8 @@ interface LayoutToolbarProps {
 
 /** Floating "layout" tool strip: whole-board arrangement tools, acting on the
  *  selection when several cards are selected. */
-export function LayoutToolbar({ isSelectionScoped, optimizePass, onOptimize, onFlip, onRotate }: LayoutToolbarProps) {
+export function LayoutToolbar({ isSelectionScoped, optimizePass, onOptimize, onArrange, onFlip, onRotate }: LayoutToolbarProps) {
+  const arrangeRef = useRef<HTMLSpanElement>(null);
   const isBusy = optimizePass !== null;
   const scope = isSelectionScoped ? 'selected cards' : 'whole board';
   return (
@@ -28,6 +32,19 @@ export function LayoutToolbar({ isSelectionScoped, optimizePass, onOptimize, onF
       <PacketIconButton title={`Optimize layout (${scope})`} onClick={onOptimize} isDisabled={isBusy} color={COLOR_OPTIMIZE}>
         <MagicWand size={ICON_SIZE} />
       </PacketIconButton>
+      <span ref={arrangeRef} className="flex">
+        <PacketIconButton
+          title={`Arrange as a tree or radial layout (${scope})`}
+          onClick={() => {
+            const rect = arrangeRef.current?.getBoundingClientRect();
+            if (rect) onArrange({ x: rect.left, y: rect.top });
+          }}
+          isDisabled={isBusy}
+          color={COLOR_OPTIMIZE}
+        >
+          <TreeStructure size={ICON_SIZE} />
+        </PacketIconButton>
+      </span>
       <ToolbarDivider />
       <PacketIconButton title={`Flip horizontally (${scope})`} onClick={() => onFlip('horizontal')} isDisabled={isBusy} color={COLOR_TOOL}>
         <FlipHorizontal size={ICON_SIZE} />
@@ -42,7 +59,7 @@ export function LayoutToolbar({ isSelectionScoped, optimizePass, onOptimize, onF
         <ArrowClockwise size={ICON_SIZE} />
       </PacketIconButton>
       {isBusy && (
-        <span className="ml-1 text-fg-faint" style={{ fontSize: '0.68rem' }}>
+        <span className="ml-1 text-fg-faint" style={{ fontSize: '0.76rem' }}>
           {optimizePass}/{OPTIMIZE_PASSES}
         </span>
       )}

@@ -8,15 +8,24 @@ import { syncFile, toRelativePath } from '../vault/syncEngine';
 import type { CanvasArrow as CanvasArrowData, CanvasCard as CanvasCardData, CanvasDocument } from '../vault/canvasTypes';
 import { exitPoint } from './arrowGeometry';
 import { layoutArrowLabel } from './arrowLabelLayout';
+import { selectionFocus } from './selectionFocus';
+import { snapMove, type Guide } from './snapGuides';
 import { buildArrowPath } from './arrowPath';
 import { useArrowRoutes } from './useArrowRoutes';
 import { CanvasArrow, CanvasArrowDefs } from './CanvasArrow';
 import { CanvasCard } from './CanvasCard';
 import { ContextMenu, type ContextMenuItem } from '../layout/ContextMenu';
-import { buildArrowMenu, buildBackgroundMenu, buildCardMenu } from './canvasContextMenu';
+import { buildArrowMenu, buildBackgroundMenu, buildCardMenu, buildGroupMenu } from './canvasContextMenu';
+import { GroupFrame } from './GroupFrame';
+import { descendantCardIds, dropTargets, groupDepths, groupFrames, indexGroups, parentMap } from './groupGeometry';
+import { useCanvasGroups } from './useCanvasGroups';
 import {
   ARROW_COLOR,
+  GROUP_SUMMARY_MAX_SCREEN_PX,
   ARROW_LABEL_INPUT_WIDTH,
+  SNAP_GUIDE_COLOR,
+  SNAP_GUIDE_OVERSHOOT_PX,
+  SNAP_THRESHOLD_PX,
   ARROW_CORNER_RADIUS,
   ARROW_STROKE_PX,
   DEFAULT_CARD_HEIGHT,
@@ -27,6 +36,7 @@ import {
   IMAGE_STAGGER_PX,
   FIT_PADDING_PX,
   TOOLBAR_INSET_PX,
+  SEARCH_BAR_INSET_PX,
   MAX_ZOOM,
   VIEW_ANIMATION_MS,
   MIN_ZOOM,
@@ -35,7 +45,7 @@ import {
   OPTIMIZE_PASSES,
   ROTATE_STEP_DEGREES,
 } from './canvasConstants';
-import { offsetPosition, rectsIntersect, type NavDirection, type Point, type Rect } from './canvasGeometry';
+import { lockToAxis, offsetPosition, rectsIntersect, type NavDirection, type Point, type Rect } from './canvasGeometry';
 import { imageFilesFrom, pickAndCopyImages, saveImageFile } from './canvasImages';
 import { findOrCreateGhost } from './ghostCards';
 import { flipPositions, type FlipAxis } from './flipLayout';
@@ -46,6 +56,8 @@ import { CARD_CLIPBOARD_MARKER, cloneCards, copyToCardClipboard, isCopyableCard,
 import { CANVAS_DRAG_EVENT, CANVAS_DROP_EVENT, CANVAS_DROP_ID, type CanvasDragDetail, type CanvasDropDetail } from './canvasDrop';
 import { DropPreviewCard } from './DropPreviewCard';
 import { EditToolbar } from './EditToolbar';
+import { Minimap, MINIMAP_RIGHT_INSET_PX, useMinimapOpen } from './Minimap';
+import { unionRects } from './minimapGeometry';
 import { ExportToolbar } from './ExportToolbar';
 import { exportBoardAsImage, pickImageExportPath } from './exportImage';
 import { useCanvasHistory, type HistoryMode } from './useCanvasHistory';
@@ -55,10 +67,17 @@ import { ToolbarShell } from './ToolbarShell';
 import { ViewToolbar } from './ViewToolbar';
 import { boundsOfCards, shiftToDefaultViewCenter, viewFittingRect, type ViewState } from './viewTransforms';
 import { optimizeLayout } from './optimizeLayout';
+import { treeLayout } from './treeLayout';
+import { radialLayout } from './radialLayout';
+import { layoutWithGroups, type LevelLayout } from './groupLayout';
+import { Planet, TreeStructure } from '@phosphor-icons/react';
+import { withGroupClearance } from './groupClearance';
 import { rotatePositions } from './rotateLayout';
 import { NotePickerPopover } from './NotePickerPopover';
 import { promoteCard } from './promoteCard';
 import { useCanvasKeyboardNav } from './useCanvasKeyboardNav';
+import { BoardSearch } from './BoardSearch';
+import { findMatchingCards, searchWords } from './cardSearch';
 
 /** Resolves after React has committed and the browser has painted the state just set. */
 function nextPaint(): Promise<void> {
@@ -71,6 +90,14 @@ function isTypingTarget(target: EventTarget | null): boolean {
   return target instanceof Element && target.closest('input, textarea, [contenteditable="true"], .cm-editor') !== null;
 }
 
+/** Same width whatever the zoom, so a guide stays a hairline. */
+const SNAP_GUIDE_LINE = {
+  stroke: SNAP_GUIDE_COLOR,
+  strokeWidth: 1,
+  strokeDasharray: '4 3',
+  vectorEffect: 'non-scaling-stroke',
+} as const;
+
 interface ArrowLabelEdit {
   arrowId: string;
   /** World coordinates of the label's anchor on the arrow. */
@@ -82,6 +109,9 @@ interface ArrowLabelEdit {
 interface CanvasViewProps {
   path: string;
   vaultRoot: string;
+  /** Reading mode (the footer toggle): the board can be looked around and opened
+   *  from, but nothing on it can be changed. */
+  isReadOnly: boolean;
   onNavigate: (relativePath: string) => void;
   /** Called after every autosave so App.tsx can refresh the note list /
    *  backlinks / unresolved-links panels — mirrors how `createNote`/
@@ -90,6 +120,9 @@ interface CanvasViewProps {
 }
 
 const AUTOSAVE_DELAY_MS = 500;
+/** Below this zoom a search hit is zoomed to instead of just centered. */
+const SEARCH_MIN_READABLE_ZOOM = 0.6;
+type ArrangeKind = 'tree-down' | 'tree-right' | 'radial';
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
@@ -122,7 +155,9 @@ interface TitlePrompt {
  *  deliberately-placed positions (manual pointer-event drag, mirroring
  *  `StickyNoteCard.tsx`'s technique) — not the sticky board's d3-force
  *  auto-layout, which would fight a user's intentional spatial layout. */
-export function CanvasView({ path, vaultRoot, onNavigate, onSynced }: CanvasViewProps) {
+export function CanvasView({ path, vaultRoot, isReadOnly, onNavigate, onSynced }: CanvasViewProps) {
+  const isReadOnlyRef = useRef(isReadOnly);
+  isReadOnlyRef.current = isReadOnly;
   const [doc, setDoc] = useState<CanvasDocument | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [focusedCardId, setFocusedCardId] = useState<string | null>(null);
@@ -166,13 +201,31 @@ export function CanvasView({ path, vaultRoot, onNavigate, onSynced }: CanvasView
       if (optimizeFrameRef.current !== null) cancelAnimationFrame(optimizeFrameRef.current);
     };
   }, []);
-  const [notePickerKind, setNotePickerKind] = useState<'note' | 'pdf'>('note');
+  const [notePickerKind, setNotePickerKind] = useState<'note' | 'pdf' | 'canvas'>('note');
   const [menu, setMenu] = useState<OpenMenu | null>(null);
+  // Find-on-board: an empty query dims nothing.
+  const [searchQuery, setSearchQuery] = useState('');
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  // Switching to reading mode closes anything open for editing.
+  useEffect(() => {
+    if (!isReadOnly) return;
+    setEditingCardId(null);
+    setTitlePrompt(null);
+    setNotePickerAnchor(null);
+    setArrowDraft(null);
+    setLabelEdit(null);
+  }, [isReadOnly]);
+  const [searchIndex, setSearchIndex] = useState(0);
 
   const viewportRef = useRef<HTMLDivElement>(null);
   /** The pan/zoom-transformed layer that holds every card and arrow (what gets exported). */
   const worldLayerRef = useRef<HTMLDivElement>(null);
   const [isExporting, setIsExporting] = useState(false);
+  /** Alignment lines shown while a card (or group) is being dragged. */
+  const [snapGuides, setSnapGuides] = useState<Guide[]>([]);
+  const [isMinimapOpen, toggleMinimap] = useMinimapOpen();
+  /** The board area's size in screen px — the minimap draws the part of the world it shows. */
+  const [boardSize, setBoardSize] = useState({ w: 0, h: 0 });
   const menuIdRef = useRef(0);
   // World-space top-left the note picker's card should land at — set when it
   // was opened from the background menu, undefined for the toolbar button
@@ -180,6 +233,7 @@ export function CanvasView({ path, vaultRoot, onNavigate, onSynced }: CanvasView
   const notePickerDropRef = useRef<Point | undefined>(undefined);
   const docRef = useRef<CanvasDocument | null>(null);
   const history = useCanvasHistory({ getDoc: () => docRef.current, applyDoc: applyHistoryDoc });
+  const groups = useCanvasGroups({ getDoc: () => docRef.current, updateDoc });
   /** A note/PDF being dragged over the board: the card that would be dropped, in world coordinates. */
   const [dropPreview, setDropPreview] = useState<{ path: string; isPdf: boolean; x: number; y: number } | null>(null);
   /** The arrow whose label is being typed, and where (world coords) its input sits. */
@@ -199,6 +253,10 @@ export function CanvasView({ path, vaultRoot, onNavigate, onSynced }: CanvasView
   // pointerdown on a card's drag strip — lets `handleMoveBy` apply the same
   // dx/dy to the whole group instead of only the one card the pointer is on.
   const groupDragSnapshotRef = useRef<Map<string, Point> | null>(null);
+  /** The card a ⇧-click just landed on, until its pointer is released. */
+  const additiveClickRef = useRef<{ cardId: string; wasSelected: boolean } | null>(null);
+  /** Ids (comma-joined, so an unchanged set doesn't re-render) of the groups a dragged card would join. */
+  const [dropGroupKey, setDropGroupKey] = useState('');
 
   useEffect(() => {
     panRef.current = pan;
@@ -212,8 +270,10 @@ export function CanvasView({ path, vaultRoot, onNavigate, onSynced }: CanvasView
     const el = viewportRef.current;
     if (!el) return;
     let last = { w: el.clientWidth, h: el.clientHeight };
+    setBoardSize(last);
     const observer = new ResizeObserver(() => {
       const next = { w: el.clientWidth, h: el.clientHeight };
+      setBoardSize(next);
       const dx = (next.w - last.w) / 2;
       const dy = (next.h - last.h) / 2;
       last = next;
@@ -291,6 +351,8 @@ export function CanvasView({ path, vaultRoot, onNavigate, onSynced }: CanvasView
   function updateDoc(updater: (doc: CanvasDocument) => CanvasDocument, mode: HistoryMode = 'push') {
     const before = docRef.current;
     if (!before) return;
+    // Reading mode: only a card re-measuring itself ('skip') gets through.
+    if (isReadOnlyRef.current && mode !== 'skip') return;
     const after = updater(before);
     if (after === before) return;
     history.record(before, mode);
@@ -345,20 +407,43 @@ export function CanvasView({ path, vaultRoot, onNavigate, onSynced }: CanvasView
     }), { group: `text:${cardId}` });
   }
 
+  function handleChangeTitle(cardId: string, title: string) {
+    updateDoc((d) => ({
+      ...d,
+      cards: d.cards.map((c) => (c.id === cardId && c.content.type === 'inline' ? { ...c, content: { ...c.content, title } } : c)),
+    }), { group: `title:${cardId}` });
+  }
+
   /** `CanvasCard`'s `onMoveBy` — `dx`/`dy` is the total delta since drag
    *  start, applied uniformly to every card in `groupDragSnapshotRef`'s
    *  pre-drag snapshot (just the one card for a single-card drag) so a
    *  multi-card drag translates rigidly instead of distorting. */
-  function handleMoveBy(cardId: string, dx: number, dy: number) {
+  function handleMoveBy(cardId: string, rawDx: number, rawDy: number, isAxisLocked: boolean) {
     const snapshot = groupDragSnapshotRef.current;
-    if (!snapshot?.has(cardId)) return;
+    const current = docRef.current;
+    if (!snapshot?.has(cardId) || !current) return;
+    // ⇧ held: move along one axis only, and let snapping act along that axis alone.
+    const { x: dx, y: dy } = isAxisLocked ? lockToAxis({ x: rawDx, y: rawDy }) : { x: rawDx, y: rawDy };
+
+    // Snap the dragged group's bounds onto the edges and centers of the cards
+    // that stay put. The adjustment is added to the pointer's raw delta each
+    // time, so it never accumulates and letting go of a guide is instant.
+    const dragged = current.cards.filter((c) => snapshot.has(c.id));
+    const proposed = unionRects(dragged.map((c) => ({ x: (snapshot.get(c.id)?.x ?? c.x) + dx, y: (snapshot.get(c.id)?.y ?? c.y) + dy, w: c.w, h: c.h })));
+    const snap = snapMove(proposed, current.cards.filter((c) => !snapshot.has(c.id)), SNAP_THRESHOLD_PX / zoomRef.current);
+    setSnapGuides(snap.guides);
+    const snappedDx = isAxisLocked && dx === 0 ? 0 : dx + snap.dx;
+    const snappedDy = isAxisLocked && dy === 0 ? 0 : dy + snap.dy;
+
     updateDoc((d) => ({
       ...d,
       cards: d.cards.map((c) => {
         const start = snapshot.get(c.id);
-        return start ? { ...c, x: start.x + dx, y: start.y + dy } : c;
+        return start ? { ...c, x: start.x + snappedDx, y: start.y + snappedDy } : c;
       }),
     }), { group: 'move' });
+    const after = docRef.current;
+    if (after) setDropGroupKey([...dropTargets(after, new Set(snapshot.keys())).keys()].join(','));
   }
 
   /** `CanvasCard`'s `onAutoSize` — a card measured itself (its content
@@ -390,6 +475,7 @@ export function CanvasView({ path, vaultRoot, onNavigate, onSynced }: CanvasView
   }
 
   function handleDelete(cardId: string) {
+    if (isReadOnlyRef.current) return;
     updateDoc((d) => ({
       ...d,
       cards: d.cards.filter((c) => c.id !== cardId),
@@ -415,6 +501,7 @@ export function CanvasView({ path, vaultRoot, onNavigate, onSynced }: CanvasView
   }
 
   function deleteCards(idsToDelete: ReadonlySet<string>) {
+    if (isReadOnlyRef.current) return;
     updateDoc((d) => ({
       ...d,
       cards: d.cards.filter((c) => !idsToDelete.has(c.id)),
@@ -425,6 +512,7 @@ export function CanvasView({ path, vaultRoot, onNavigate, onSynced }: CanvasView
   }
 
   async function handlePromote(cardId: string) {
+    if (isReadOnlyRef.current) return;
     const current = docRef.current;
     if (!current) return;
     const next = await promoteCard(vaultRoot, relativePath, current, cardId);
@@ -435,6 +523,7 @@ export function CanvasView({ path, vaultRoot, onNavigate, onSynced }: CanvasView
   }
 
   function handleCreateConnectedCard(fromCardId: string, direction: NavDirection) {
+    if (isReadOnlyRef.current) return;
     const newCardId = ulid();
     updateDoc((d) => {
       const from = d.cards.find((c) => c.id === fromCardId);
@@ -457,6 +546,7 @@ export function CanvasView({ path, vaultRoot, onNavigate, onSynced }: CanvasView
   }
 
   function handleStartTyping(initialChar: string) {
+    if (isReadOnlyRef.current) return;
     const newCardId = ulid();
     const rect = viewportRef.current?.getBoundingClientRect();
     const center = rect
@@ -550,8 +640,20 @@ export function CanvasView({ path, vaultRoot, onNavigate, onSynced }: CanvasView
    *  multi-card selection keeps the whole group selected (and snapshots it
    *  for a potential group drag); clicking anything else collapses to just
    *  that one card, matching single-select's prior behavior. */
-  function handleCardPointerDown(cardId: string) {
+  function handleCardPointerDown(cardId: string, isAdditive = false) {
     history.breakGroup();
+    additiveClickRef.current = null;
+    if (isAdditive) {
+      // ⇧ on a card: a click toggles it in the selection, decided on release; a
+      // drag moves it (with the whole selection if it's in it) along one axis and
+      // leaves the selection as it was.
+      const wasSelected = selectedCardIds.has(cardId);
+      additiveClickRef.current = { cardId, wasSelected };
+      setEditingCardId(null);
+      viewportRef.current?.focus();
+      groupDragSnapshotRef.current = snapshotPositions(wasSelected ? selectedCardIds : new Set([cardId]));
+      return;
+    }
     setEditingCardId((prev) => (prev === cardId ? prev : null));
     setFocusedCardId(cardId);
     viewportRef.current?.focus();
@@ -567,8 +669,26 @@ export function CanvasView({ path, vaultRoot, onNavigate, onSynced }: CanvasView
    *  selection down to just that card rather than leaving the whole group
    *  selected. */
   function handleCardDragEnd(cardId: string, moved: boolean) {
-    if (moved) return;
-    setEditingCardId(cardId);
+    setSnapGuides([]);
+    setDropGroupKey('');
+    const additive = additiveClickRef.current;
+    additiveClickRef.current = null;
+    if (moved) {
+      history.breakGroup();
+      groups.absorbIntoGroups(new Set(groupDragSnapshotRef.current?.keys()));
+      return;
+    }
+    if (additive?.cardId === cardId) {
+      setSelectedCardIds((prev) => {
+        const next = new Set(prev);
+        if (additive.wasSelected) next.delete(cardId);
+        else next.add(cardId);
+        return next;
+      });
+      if (!additive.wasSelected) setFocusedCardId(cardId);
+      return;
+    }
+    if (!isReadOnlyRef.current) setEditingCardId(cardId);
     setSelectedCardIds((prev) => (prev.size > 1 && prev.has(cardId) ? new Set([cardId]) : prev));
   }
 
@@ -629,7 +749,7 @@ export function CanvasView({ path, vaultRoot, onNavigate, onSynced }: CanvasView
 
     const distance = Math.hypot(event.clientX - marqueeDrag.startClientX, event.clientY - marqueeDrag.startClientY);
     if (distance < DRAG_CLICK_THRESHOLD_PX) {
-      focusCard(null);
+      if (!event.shiftKey) focusCard(null);
       return;
     }
 
@@ -642,12 +762,14 @@ export function CanvasView({ path, vaultRoot, onNavigate, onSynced }: CanvasView
       h: Math.abs(worldEnd.y - worldStart.y),
     };
     const hits = (docRef.current?.cards ?? []).filter((c) => rectsIntersect(marqueeRect, c)).map((c) => c.id);
-    setSelectedCardIds(new Set(hits));
+    // ⇧ adds the marquee's cards to what's already selected.
+    setSelectedCardIds((prev) => new Set(event.shiftKey ? [...prev, ...hits] : hits));
     setFocusedCardId(hits[0] ?? null);
     setEditingCardId(null);
   }
 
   function handleStartArrow(fromCardId: string, event: ReactPointerEvent) {
+    if (isReadOnlyRef.current) return;
     const world = screenToWorld(event.clientX, event.clientY);
     setArrowDraft({ fromCardId, x: world.x, y: world.y });
 
@@ -731,7 +853,7 @@ export function CanvasView({ path, vaultRoot, onNavigate, onSynced }: CanvasView
     setEditingCardId(newCardId);
   }
 
-  function handleOpenPicker(kind: 'note' | 'pdf', anchor: Point) {
+  function handleOpenPicker(kind: 'note' | 'pdf' | 'canvas', anchor: Point) {
     setNotePickerKind(kind);
     notePickerDropRef.current = undefined;
     setNotePickerAnchor(anchor);
@@ -742,7 +864,7 @@ export function CanvasView({ path, vaultRoot, onNavigate, onSynced }: CanvasView
    *  note is already placed on this board, focuses the existing card instead
    *  of adding a duplicate — the same dedup call `findOrCreateGhost` makes
    *  for not-yet-created titles. */
-  function handleInsertNoteCard(path: string, at?: Point, type: 'note' | 'pdf' = 'note') {
+  function handleInsertNoteCard(path: string, at?: Point, type: 'note' | 'pdf' | 'canvas' = 'note') {
     const current = docRef.current;
     if (!current) return;
     const existing = current.cards.find((c) => c.content.type === type && c.content.path === path);
@@ -824,6 +946,7 @@ export function CanvasView({ path, vaultRoot, onNavigate, onSynced }: CanvasView
   }
 
   function handlePaste(event: ClipboardEvent) {
+    if (isReadOnlyRef.current) return;
     // Text pasted into a card's editor (or any input) is theirs to handle.
     if (isTypingTarget(event.target)) return;
     const files = imageFilesFrom(event.clipboardData);
@@ -847,6 +970,7 @@ export function CanvasView({ path, vaultRoot, onNavigate, onSynced }: CanvasView
 
   /** Image files dragged in from the OS (Finder) and dropped on the board. */
   function handleDrop(event: DragEvent<HTMLDivElement>) {
+    if (isReadOnlyRef.current) return;
     const files = imageFilesFrom(event.dataTransfer);
     if (files.length === 0) return;
     event.preventDefault();
@@ -855,14 +979,16 @@ export function CanvasView({ path, vaultRoot, onNavigate, onSynced }: CanvasView
   }
 
   function handleUndo() {
+    if (isReadOnlyRef.current) return;
     if (optimizePass === null) history.undo();
   }
 
   function handleRedo() {
+    if (isReadOnlyRef.current) return;
     if (optimizePass === null) history.redo();
   }
 
-  /** ⌘Z / ⇧⌘Z / ⌘C / ⌘D. Copy and paste normally arrive as clipboard events
+  /** ⌘Z / ⇧⌘Z / ⌘C / ⌘D / ⌘G (group the selection). Copy and paste normally arrive as clipboard events
    *  (handled above); the ⌘C key path here covers the case where the native
    *  Edit menu leaves the key to the page. */
   function handleShortcut(event: KeyboardEvent) {
@@ -876,6 +1002,13 @@ export function CanvasView({ path, vaultRoot, onNavigate, onSynced }: CanvasView
     } else if (event.code === 'KeyD') {
       event.preventDefault();
       handleDuplicate(selectedCardIds);
+    } else if (event.code === 'KeyF') {
+      event.preventDefault();
+      searchInputRef.current?.focus();
+      searchInputRef.current?.select();
+    } else if (event.code === 'KeyG') {
+      event.preventDefault();
+      groups.groupCards(selectedCardIds);
     }
   }
 
@@ -887,7 +1020,8 @@ export function CanvasView({ path, vaultRoot, onNavigate, onSynced }: CanvasView
 
   /** A note or PDF dragged out of the sidebar or tab list, hovering over the board. */
   function handleExternalDrag(detail: CanvasDragDetail) {
-    if (!detail || detail.isCanvas) {
+    if (isReadOnlyRef.current) return;
+    if (!detail || detail.path === relativePath) {
       setDropPreview(null);
       return;
     }
@@ -896,9 +1030,10 @@ export function CanvasView({ path, vaultRoot, onNavigate, onSynced }: CanvasView
 
   /** ...and released over it. */
   function handleExternalDrop(detail: CanvasDropDetail) {
+    if (isReadOnlyRef.current) return;
     setDropPreview(null);
-    if (detail.isCanvas) return;
-    handleInsertNoteCard(detail.path, dropOrigin(detail), detail.isPdf ? 'pdf' : 'note');
+    if (detail.path === relativePath) return; // a canvas can't hold itself
+    handleInsertNoteCard(detail.path, dropOrigin(detail), detail.isCanvas ? 'canvas' : detail.isPdf ? 'pdf' : 'note');
   }
 
   // Window-level listeners, so they work wherever focus is on the page (a paste
@@ -968,6 +1103,15 @@ export function CanvasView({ path, vaultRoot, onNavigate, onSynced }: CanvasView
     return rect ? { w: rect.width, h: rect.height } : null;
   }
 
+  /** Minimap press/drag: puts the given world point at the middle of the view (zoom unchanged). */
+  function handleCenterOn(world: Point) {
+    if (viewFrameRef.current !== null) {
+      cancelAnimationFrame(viewFrameRef.current);
+      viewFrameRef.current = null;
+    }
+    setPan({ x: boardSize.w / 2 - world.x * zoomRef.current, y: boardSize.h / 2 - world.y * zoomRef.current });
+  }
+
   /** "Reset view": the cards move (as one undoable step) so their center sits
    *  at the middle of the default view, and the camera glides to that default
    *  view (100%, no pan) — so the board ends up centered on screen, and
@@ -986,12 +1130,56 @@ export function CanvasView({ path, vaultRoot, onNavigate, onSynced }: CanvasView
     const viewport = viewportSize();
     const bounds = boundsOfCards(cards);
     if (!viewport || !bounds) return;
-    animateViewTo(viewFittingRect(bounds, viewport, FIT_PADDING_PX, MIN_ZOOM, maxZoom, TOOLBAR_INSET_PX));
+    // Fit into the space the toolbars, search box and (when shown) minimap leave free.
+    const isMapShown = isMinimapOpen && (docRef.current?.cards.length ?? 0) > 0;
+    animateViewTo(
+      viewFittingRect(bounds, viewport, FIT_PADDING_PX, MIN_ZOOM, maxZoom, {
+        top: SEARCH_BAR_INSET_PX,
+        bottom: TOOLBAR_INSET_PX,
+        right: isMapShown ? MINIMAP_RIGHT_INSET_PX : 0,
+      }),
+    );
   }
 
   function handleFitAll() {
     // Never zooms in past 1: this is for seeing everything, not enlarging a lone card.
     fitCards(docRef.current?.cards ?? [], 1);
+  }
+
+  /** Selects a search match and brings it into view: centered at a readable
+   *  zoom, or zoomed in on when the board is too small to read it. */
+  function showMatch(card: CanvasCardData) {
+    setSelectedCardIds(new Set([card.id]));
+    setFocusedCardId(card.id);
+    setEditingCardId(null);
+    if (zoomRef.current < SEARCH_MIN_READABLE_ZOOM) fitCards([card], 1);
+    else handleCenterOn({ x: card.x + card.w / 2, y: card.y + card.h / 2 });
+  }
+
+  function handleSearchQuery(query: string) {
+    setSearchQuery(query);
+    setSearchIndex(0);
+    const first = findMatchingCards(docRef.current?.cards ?? [], query)[0];
+    if (first) showMatch(first);
+  }
+
+  function handleSearchStep(direction: 1 | -1) {
+    const matches = findMatchingCards(docRef.current?.cards ?? [], searchQuery);
+    if (matches.length === 0) return;
+    const next = (searchIndex + direction + matches.length) % matches.length;
+    setSearchIndex(next);
+    showMatch(matches[next]);
+  }
+
+  function clearSearch() {
+    setSearchQuery('');
+    setSearchIndex(0);
+    viewportRef.current?.focus();
+  }
+
+  function handleZoomToGroup(groupId: string) {
+    const members = new Set(groups.membersOf(groupId));
+    fitCards((docRef.current?.cards ?? []).filter((c) => members.has(c.id)), MAX_ZOOM);
   }
 
   function handleFitSelection() {
@@ -1052,9 +1240,43 @@ export function CanvasView({ path, vaultRoot, onNavigate, onSynced }: CanvasView
       const current = docRef.current;
       if (!current || isUnmountedRef.current) break;
       setOptimizePass(pass);
-      await animateCardsTo(optimizeLayout(current.cards, layoutArrows, movable, pass === 1), false);
+      const targets = withGroupClearance(
+        current.cards,
+        current.groups,
+        layoutWithGroups(current.cards, current.groups, layoutArrows, movable, (nodes, nodeArrows, movableIds) => optimizeLayout(nodes, nodeArrows, movableIds, pass === 1)),
+        movable,
+      );
+      await animateCardsTo(targets, false);
     }
     setOptimizePass(null);
+  }
+
+  /** Rearranges the selected cards (or the whole board) as a tree or on rings.
+   *  Groups stay together: each is arranged inside itself, then placed as one box. */
+  function handleArrange(kind: ArrangeKind) {
+    const current = docRef.current;
+    if (!current || current.cards.length < 2 || optimizePass !== null) return;
+    const movable = selectedCardIds.size > 1 ? new Set(selectedCardIds) : undefined;
+    const layoutArrows = current.arrows.map((a) => {
+      const label = a.label ? layoutArrowLabel(a.label) : null;
+      return { fromCardId: a.fromCardId, toCardId: a.toCardId, label: label ? { w: label.width, h: label.height } : undefined };
+    });
+    const layout: LevelLayout =
+      kind === 'radial'
+        ? radialLayout
+        : (nodes, nodeArrows, movableIds) => treeLayout(nodes, nodeArrows, movableIds, kind === 'tree-right' ? 'right' : 'down');
+    const targets = layoutWithGroups(current.cards, current.groups, layoutArrows, movable, layout);
+    void animateCardsTo(withGroupClearance(current.cards, current.groups, targets, movable));
+  }
+
+  function openArrangeMenu(anchor: Point) {
+    menuIdRef.current += 1;
+    const items: ContextMenuItem[] = [
+      { label: 'Tree, top to bottom', icon: <TreeStructure size={13} />, onSelect: () => handleArrange('tree-down') },
+      { label: 'Tree, left to right', icon: <TreeStructure size={13} style={{ transform: 'rotate(-90deg)' }} />, onSelect: () => handleArrange('tree-right') },
+      { label: 'Radial', icon: <Planet size={13} />, onSelect: () => handleArrange('radial') },
+    ];
+    setMenu({ id: menuIdRef.current, x: anchor.x, y: anchor.y, items });
   }
 
   /** Mirrors the selected cards (or the whole board) left-right or top-bottom. */
@@ -1107,6 +1329,7 @@ export function CanvasView({ path, vaultRoot, onNavigate, onSynced }: CanvasView
   }
 
   function handleDuplicate(ids: ReadonlySet<string>) {
+    if (isReadOnlyRef.current) return;
     const current = docRef.current;
     if (!current) return;
     const cards = current.cards.filter((c) => ids.has(c.id) && isCopyableCard(c));
@@ -1121,6 +1344,7 @@ export function CanvasView({ path, vaultRoot, onNavigate, onSynced }: CanvasView
   }
 
   function handleEditArrowLabel(arrowId: string) {
+    if (isReadOnlyRef.current) return;
     const arrow = docRef.current?.arrows.find((a) => a.id === arrowId);
     const polyline = arrowRoutes.get(arrowId);
     if (!arrow || !polyline) return;
@@ -1149,12 +1373,28 @@ export function CanvasView({ path, vaultRoot, onNavigate, onSynced }: CanvasView
     if (!current) return;
     const arrowId = (event.target as Element).closest('[data-arrow-id]')?.getAttribute('data-arrow-id');
     if (arrowId) {
+      if (isReadOnly) return;
       menuIdRef.current += 1;
       const items = buildArrowMenu({
         hasLabel: Boolean(current.arrows.find((a) => a.id === arrowId)?.label),
         onEditLabel: () => handleEditArrowLabel(arrowId),
         onRemoveLabel: () => applyArrowLabel(arrowId, ''),
         onDelete: () => updateDoc((d) => ({ ...d, arrows: d.arrows.filter((a) => a.id !== arrowId) })),
+      });
+      setMenu({ id: menuIdRef.current, x: event.clientX, y: event.clientY, items });
+      return;
+    }
+    const groupId = (event.target as Element).closest('[data-canvas-group-id]')?.getAttribute('data-canvas-group-id');
+    if (groupId) {
+      menuIdRef.current += 1;
+      const items = buildGroupMenu({
+        isReadOnly,
+        onSelectContents: () => {
+          const ids = groups.membersOf(groupId);
+          setSelectedCardIds(new Set(ids));
+          setFocusedCardId(ids[0] ?? null);
+        },
+        onUngroup: () => groups.ungroup(groupId),
       });
       setMenu({ id: menuIdRef.current, x: event.clientX, y: event.clientY, items });
       return;
@@ -1167,18 +1407,22 @@ export function CanvasView({ path, vaultRoot, onNavigate, onSynced }: CanvasView
     if (card) {
       const targetIds: ReadonlySet<string> = selectedCardIds.has(card.id) ? selectedCardIds : new Set([card.id]);
       items = buildCardMenu({
+        isReadOnly,
         card,
         targetCount: targetIds.size,
         canDuplicate: current.cards.some((c) => targetIds.has(c.id) && isCopyableCard(c)),
         arrowCount: current.arrows.filter((a) => targetIds.has(a.fromCardId) || targetIds.has(a.toCardId)).length,
-        onOpenNote: () => (card.content.type === 'note' || card.content.type === 'pdf') && onNavigate(card.content.path),
+        onOpenNote: () => (card.content.type === 'note' || card.content.type === 'pdf' || card.content.type === 'canvas') && onNavigate(card.content.path),
         onPromote: () => void handlePromote(card.id),
         onDuplicate: () => handleDuplicate(targetIds),
+        onGroup: () => groups.groupCards(targetIds),
+        onRemoveFromGroup: current.groups.some((g) => g.cardIds.some((id) => targetIds.has(id))) ? () => groups.removeFromGroups(targetIds) : undefined,
         onRemoveArrows: () => handleRemoveArrows(targetIds),
         onDelete: () => deleteCards(targetIds),
       });
     } else {
       items = buildBackgroundMenu({
+        isReadOnly,
         hasCards: current.cards.length > 0,
         onNewCard: () => handleAddCard(world),
         onAddImage: () => void importImages(() => pickAndCopyImages(vaultRoot), world),
@@ -1188,6 +1432,11 @@ export function CanvasView({ path, vaultRoot, onNavigate, onSynced }: CanvasView
         onAddWarning: () => handleAddTextBlock('warning', world),
         onAddPdf: () => {
           setNotePickerKind('pdf');
+          notePickerDropRef.current = world;
+          setNotePickerAnchor({ x: event.clientX, y: event.clientY });
+        },
+        onAddCanvas: () => {
+          setNotePickerKind('canvas');
           notePickerDropRef.current = world;
           setNotePickerAnchor({ x: event.clientX, y: event.clientY });
         },
@@ -1203,6 +1452,7 @@ export function CanvasView({ path, vaultRoot, onNavigate, onSynced }: CanvasView
         onResetView: handleResetView,
       });
     }
+    if (items.length === 0) return;
     menuIdRef.current += 1;
     setMenu({ id: menuIdRef.current, x: event.clientX, y: event.clientY, items });
   }
@@ -1223,7 +1473,23 @@ export function CanvasView({ path, vaultRoot, onNavigate, onSynced }: CanvasView
   }
 
   const arrowColor = doc.arrowColor ?? ARROW_COLOR;
+  // With cards selected, the rest of the board fades back (null = nothing selected).
+  const focus = selectionFocus(selectedCardIds, doc.arrows);
   const cardsById = new Map(doc.cards.map((card) => [card.id, card]));
+  const frames = groupFrames(doc.cards, doc.groups);
+  const groupsById = indexGroups(doc.groups);
+  const groupDepth = groupDepths(doc.groups);
+  const groupParents = parentMap(doc.groups);
+  const searchMatches = findMatchingCards(doc.cards, searchQuery);
+  const highlightWords = searchWords(searchQuery);
+  const matchIds = searchQuery.trim() !== '' ? new Set(searchMatches.map((c) => c.id)) : null;
+  // A group too small to read on screen collapses to its title; if its parent is
+  // small too, the parent collapses instead and covers it.
+  const isSmallOnScreen = (id: string) => {
+    const frame = frames.get(id);
+    return frame !== undefined && Math.max(frame.w, frame.h) * zoom < GROUP_SUMMARY_MAX_SCREEN_PX;
+  };
+  const isSummarized = (id: string) => isSmallOnScreen(id) && !(groupParents.has(id) && isSmallOnScreen(groupParents.get(id)!));
   const fromCardForDraft = arrowDraft ? cardsById.get(arrowDraft.fromCardId) : null;
   // The in-progress dashed preview: a straight line from the source card's
   // edge to the cursor. Not routed around other cards — it's transient, and a
@@ -1262,13 +1528,52 @@ export function CanvasView({ path, vaultRoot, onNavigate, onSynced }: CanvasView
         className="absolute left-0 top-0"
         style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: '0 0' }}
       >
+        {[...doc.groups].sort((a, b) => (groupDepth.get(a.id) ?? 0) - (groupDepth.get(b.id) ?? 0)).map((group) => {
+          const frame = frames.get(group.id);
+          const members = descendantCardIds(group, groupsById);
+          return frame && (
+          <GroupFrame
+            key={group.id}
+            group={group}
+            frame={frame}
+            zoom={zoom}
+            isSelected={members.length > 0 && members.every((id) => selectedCardIds.has(id))}
+            isDropTarget={dropGroupKey.split(',').includes(group.id)}
+            onDragStart={(groupId, isAdditive) => {
+              history.breakGroup();
+              const members = groups.membersOf(groupId);
+              setSelectedCardIds((prev) => new Set(isAdditive ? [...prev, ...members] : members));
+              setFocusedCardId(members[0] ?? null);
+              setEditingCardId(null);
+              viewportRef.current?.focus();
+              groups.startMove(groupId);
+            }}
+            onMoveBy={groups.moveBy}
+            onDragEnd={groups.absorbGroup}
+            onRename={groups.rename}
+            isSummarized={isSummarized(group.id)}
+            cardCount={members.length}
+            onZoomTo={handleZoomToGroup}
+            isReadOnly={isReadOnly}
+          />
+          );
+        })}
         <svg className="pointer-events-none absolute left-0 top-0 overflow-visible" width={0} height={0}>
           <CanvasArrowDefs color={arrowColor} />
           {doc.arrows.map((arrow) => {
             const polyline = arrowRoutes.get(arrow.id);
             if (!polyline) return null;
             const route = buildArrowPath(polyline, ARROW_CORNER_RADIUS, arrowHops.get(arrow.id));
-            return <CanvasArrow key={arrow.id} arrowId={arrow.id} color={arrowColor} route={route} label={arrow.label} onEditLabel={handleEditArrowLabel} />;
+            return <CanvasArrow key={arrow.id} arrowId={arrow.id} color={arrowColor} isDimmed={focus !== null && !focus.arrowIds.has(arrow.id)} isFlowing={focus?.arrowIds.has(arrow.id) ?? false} route={route} label={arrow.label} onEditLabel={handleEditArrowLabel} />;
+          })}
+          {snapGuides.map((guide) => {
+            const from = guide.from - SNAP_GUIDE_OVERSHOOT_PX;
+            const to = guide.to + SNAP_GUIDE_OVERSHOOT_PX;
+            return guide.orientation === 'vertical' ? (
+              <line key={`v${guide.position}`} x1={guide.position} x2={guide.position} y1={from} y2={to} {...SNAP_GUIDE_LINE} />
+            ) : (
+              <line key={`h${guide.position}`} y1={guide.position} y2={guide.position} x1={from} x2={to} {...SNAP_GUIDE_LINE} />
+            );
           })}
           {draftArrowRoute && (
             <path d={draftArrowRoute.path} fill="none" stroke={arrowColor} strokeWidth={ARROW_STROKE_PX} strokeDasharray="4 4" />
@@ -1284,6 +1589,7 @@ export function CanvasView({ path, vaultRoot, onNavigate, onSynced }: CanvasView
             isEditing={card.id === editingCardId}
             onNavigate={onNavigate}
             onChangeBody={handleChangeBody}
+            onChangeTitle={handleChangeTitle}
             onResizeImage={handleResizeImage}
             onChangeCaption={handleChangeCaption}
             onMoveBy={handleMoveBy}
@@ -1294,7 +1600,10 @@ export function CanvasView({ path, vaultRoot, onNavigate, onSynced }: CanvasView
             onDragEnd={handleCardDragEnd}
             onStartArrow={handleStartArrow}
             isLinking={isMetaHeld}
+            isDimmed={(focus !== null && !focus.cardIds.has(card.id)) || (matchIds !== null && !matchIds.has(card.id))}
             autoFocus={card.id === autoFocusCardId}
+            searchWords={highlightWords}
+            isReadOnly={isReadOnly}
           />
         ))}
         {dropPreview && <DropPreviewCard {...dropPreview} />}
@@ -1313,7 +1622,7 @@ export function CanvasView({ path, vaultRoot, onNavigate, onSynced }: CanvasView
             onPointerDown={(event) => event.stopPropagation()}
             placeholder="label…"
             className="absolute border border-border-strong bg-bg px-1.5 py-0.5 text-center text-fg-prominent outline-none"
-            style={{ left: arrowLabelEdit.x - ARROW_LABEL_INPUT_WIDTH / 2, top: arrowLabelEdit.y - 26, width: ARROW_LABEL_INPUT_WIDTH, fontSize: '0.75rem' }}
+            style={{ left: arrowLabelEdit.x - ARROW_LABEL_INPUT_WIDTH / 2, top: arrowLabelEdit.y - 26, width: ARROW_LABEL_INPUT_WIDTH, fontSize: '0.85rem' }}
           />
         )}
         {titlePrompt && (
@@ -1329,7 +1638,7 @@ export function CanvasView({ path, vaultRoot, onNavigate, onSynced }: CanvasView
             onBlur={commitTitlePrompt}
             placeholder="note title…"
             className="absolute border border-border-strong bg-bg px-1.5 py-1 text-fg-prominent outline-none"
-            style={{ left: titlePrompt.x, top: titlePrompt.y, width: DEFAULT_CARD_WIDTH, fontSize: '0.8rem' }}
+            style={{ left: titlePrompt.x, top: titlePrompt.y, width: DEFAULT_CARD_WIDTH, fontSize: '0.9rem' }}
           />
         )}
       </div>
@@ -1350,10 +1659,19 @@ export function CanvasView({ path, vaultRoot, onNavigate, onSynced }: CanvasView
         />
       )}
       <div className="pointer-events-none absolute left-3 top-3 flex items-center gap-3">
-        <span className="text-fg-faint tracking-label uppercase" style={{ fontSize: '0.68rem' }}>
-          [canvas]
+        <span className="text-fg-faint tracking-label uppercase" style={{ fontSize: '0.76rem' }}>
+          [canvas{isReadOnly ? ' · reading' : ''}]
         </span>
       </div>
+      <BoardSearch
+        query={searchQuery}
+        onQueryChange={handleSearchQuery}
+        matchCount={searchMatches.length}
+        activeIndex={searchIndex}
+        onStep={handleSearchStep}
+        onClear={clearSearch}
+        inputRef={searchInputRef}
+      />
       {notePickerAnchor && (
         <NotePickerPopover
           vaultRoot={vaultRoot}
@@ -1367,7 +1685,18 @@ export function CanvasView({ path, vaultRoot, onNavigate, onSynced }: CanvasView
           onClose={() => setNotePickerAnchor(null)}
         />
       )}
+      {isMinimapOpen && doc.cards.length > 0 && boardSize.w > 0 && (
+        <Minimap
+          cards={doc.cards}
+          arrows={doc.arrows}
+          arrowColor={arrowColor}
+          viewRect={{ x: -pan.x / zoom, y: -pan.y / zoom, w: boardSize.w / zoom, h: boardSize.h / zoom }}
+          onCenterOn={handleCenterOn}
+        />
+      )}
       <div className="pointer-events-none absolute inset-x-0 bottom-3 flex items-stretch justify-center gap-3">
+        {!isReadOnly && (
+          <>
         <EditToolbar canUndo={history.canUndo && optimizePass === null} canRedo={history.canRedo && optimizePass === null} onUndo={handleUndo} onRedo={handleRedo} />
         <NewToolbar
           onAddText={() => handleAddCard()}
@@ -1376,26 +1705,36 @@ export function CanvasView({ path, vaultRoot, onNavigate, onSynced }: CanvasView
           onAddWarning={() => handleAddTextBlock('warning')}
           onPickNote={(anchor) => handleOpenPicker('note', anchor)}
           onPickPdf={(anchor) => handleOpenPicker('pdf', anchor)}
+          onPickCanvas={(anchor) => handleOpenPicker('canvas', anchor)}
           onAddImage={() => void importImages(() => pickAndCopyImages(vaultRoot))}
         />
+          </>
+        )}
         <ViewToolbar
           onResetView={handleResetView}
           onFitAll={handleFitAll}
           onFitSelection={handleFitSelection}
           hasCards={doc.cards.length > 0}
           hasSelection={selectedCardIds.size > 0}
+          isMinimapOpen={isMinimapOpen}
+          onToggleMinimap={toggleMinimap}
         />
+        {!isReadOnly && (
         <LayoutToolbar
           isSelectionScoped={selectedCardIds.size > 1}
           optimizePass={optimizePass}
           onOptimize={() => void handleOptimize()}
+          onArrange={openArrangeMenu}
           onFlip={handleFlip}
           onRotate={handleRotate}
         />
+        )}
         <ExportToolbar isDisabled={isExporting || doc.cards.length === 0} onExportImage={() => void handleExportImage()} />
+        {!isReadOnly && (
         <ToolbarShell>
           <ArrowColorPicker color={arrowColor} onChange={(color) => updateDoc((d) => ({ ...d, arrowColor: color }))} />
         </ToolbarShell>
+        )}
       </div>
       {menu && (
         <ContextMenu

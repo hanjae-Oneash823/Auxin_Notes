@@ -32,8 +32,17 @@ export function shiftToDefaultViewCenter(bounds: Rect, viewport: ViewportSize): 
   return { x: viewport.w / 2 - (bounds.x + bounds.w / 2), y: viewport.h / 2 - (bounds.y + bounds.h / 2) };
 }
 
+/** Screen px at each edge that something else covers (toolbars, search box,
+ *  minimap); the fit is centered in the space left over. */
+export interface ViewInsets {
+  top?: number;
+  right?: number;
+  bottom?: number;
+  left?: number;
+}
+
 /** The view that shows all of `bounds` (with `padding` screen px around it),
- *  centered. Zoom is clamped to `[minZoom, maxZoom]`, so a very large board
+ *  centered in the viewport minus `insets`. Zoom is clamped to `[minZoom, maxZoom]`, so a very large board
  *  may still overflow at `minZoom` and a tiny one isn't blown up past
  *  `maxZoom`. */
 export function viewFittingRect(
@@ -42,18 +51,18 @@ export function viewFittingRect(
   padding: number,
   minZoom: number,
   maxZoom: number,
-  /** Screen px at the bottom that something else covers (the toolbars); the
-   *  cards are fitted and centered in the space above it. */
-  bottomInset = 0,
+  insets: ViewInsets = {},
 ): ViewState {
-  const visibleHeight = viewport.h - bottomInset;
-  const fit = Math.min((viewport.w - 2 * padding) / bounds.w, (visibleHeight - 2 * padding) / bounds.h);
+  const { top = 0, right = 0, bottom = 0, left = 0 } = insets;
+  const visibleWidth = viewport.w - left - right;
+  const visibleHeight = viewport.h - top - bottom;
+  const fit = Math.min((visibleWidth - 2 * padding) / bounds.w, (visibleHeight - 2 * padding) / bounds.h);
   const zoom = Math.min(maxZoom, Math.max(minZoom, fit));
   return {
     zoom,
     pan: {
-      x: viewport.w / 2 - (bounds.x + bounds.w / 2) * zoom,
-      y: visibleHeight / 2 - (bounds.y + bounds.h / 2) * zoom,
+      x: left + visibleWidth / 2 - (bounds.x + bounds.w / 2) * zoom,
+      y: top + visibleHeight / 2 - (bounds.y + bounds.h / 2) * zoom,
     },
   };
 }

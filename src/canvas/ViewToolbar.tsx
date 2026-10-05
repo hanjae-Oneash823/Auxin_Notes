@@ -1,4 +1,4 @@
-import { FrameCorners, House, Selection } from '@phosphor-icons/react';
+import { FrameCorners, House, MapTrifold, Selection } from '@phosphor-icons/react';
 import { PacketIconButton } from '../layout/SidebarPacket';
 import { ToolbarShell } from './ToolbarShell';
 
@@ -12,10 +12,12 @@ interface ViewToolbarProps {
   /** Nothing to frame on an empty board. */
   hasCards: boolean;
   hasSelection: boolean;
+  isMinimapOpen: boolean;
+  onToggleMinimap: () => void;
 }
 
 /** Floating "view" tool strip: camera shortcuts (plus the one that also recenters the cards). */
-export function ViewToolbar({ onResetView, onFitAll, onFitSelection, hasCards, hasSelection }: ViewToolbarProps) {
+export function ViewToolbar({ onResetView, onFitAll, onFitSelection, hasCards, hasSelection, isMinimapOpen, onToggleMinimap }: ViewToolbarProps) {
   return (
     <ToolbarShell label="view">
       <PacketIconButton title="Reset view (center the cards)" onClick={onResetView} color={COLOR_VIEW}>
@@ -26,6 +28,13 @@ export function ViewToolbar({ onResetView, onFitAll, onFitSelection, hasCards, h
       </PacketIconButton>
       <PacketIconButton title="Zoom to selection" onClick={onFitSelection} isDisabled={!hasSelection} color={COLOR_VIEW}>
         <Selection size={ICON_SIZE} />
+      </PacketIconButton>
+      <PacketIconButton
+        title={isMinimapOpen ? 'Hide minimap' : 'Show minimap'}
+        onClick={onToggleMinimap}
+        color={isMinimapOpen ? 'var(--accent-link)' : COLOR_VIEW}
+      >
+        <MapTrifold size={ICON_SIZE} weight={isMinimapOpen ? 'fill' : 'regular'} />
       </PacketIconButton>
     </ToolbarShell>
   );

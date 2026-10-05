@@ -4,6 +4,7 @@ import { EditorState } from '@codemirror/state';
 import { drawSelection, EditorView, keymap } from '@codemirror/view';
 import { createLinkChipPlugin } from '../editor/extensions/linkChipWidget';
 import { createWikilinkAutocomplete } from '../editor/extensions/wikilinkAutocomplete';
+import { searchHighlight, setSearchWords } from './searchHighlight';
 
 interface CardTextEditorProps {
   vaultRoot: string;
@@ -21,6 +22,8 @@ interface CardTextEditorProps {
    *  transparent to the pointer — so the card around it (not its text) takes
    *  every click and drag. Flipping to true focuses the editor. */
   isEditable: boolean;
+  /** Words from the board's search box; every occurrence in the text is marked. */
+  highlightWords: readonly string[];
 }
 
 /** A card's inline markdown mini-editor — deliberately not the full
@@ -29,11 +32,13 @@ interface CardTextEditorProps {
  *  Only pulls in wikilink rendering (`createLinkChipPlugin`) and `[[`
  *  autocomplete (`createWikilinkAutocomplete`), both self-contained enough
  *  to not need the rest of the bundle around them. */
-export function CardTextEditor({ vaultRoot, value, onChange, onNavigate, readOnly, autoFocus, isEditable }: CardTextEditorProps) {
+export function CardTextEditor({ vaultRoot, value, onChange, onNavigate, readOnly, autoFocus, isEditable, highlightWords }: CardTextEditorProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
+  const highlightWordsRef = useRef(highlightWords);
+  highlightWordsRef.current = highlightWords;
 
   useEffect(() => {
     const container = containerRef.current;
@@ -48,6 +53,7 @@ export function CardTextEditor({ vaultRoot, value, onChange, onNavigate, readOnl
         // extension via markdownSetup.ts; this editor's smaller, hand-picked
         // extension list needs it added explicitly.
         drawSelection(),
+        searchHighlight,
         EditorState.allowMultipleSelections.of(true),
         EditorView.lineWrapping,
         EditorView.editable.of(!readOnly),
@@ -59,7 +65,7 @@ export function CardTextEditor({ vaultRoot, value, onChange, onNavigate, readOnl
           if (update.docChanged) onChangeRef.current(update.state.doc.toString());
         }),
         EditorView.theme({
-          '&': { fontSize: '0.82rem' },
+          '&': { fontSize: '0.92rem' },
           // Never scroll: the card sizes itself to the text, and letting the
           // scroller show bars (as the cursor/selection layers briefly
           // overflow it on focus) makes the card jump taller for a moment.
@@ -75,6 +81,7 @@ export function CardTextEditor({ vaultRoot, value, onChange, onNavigate, readOnl
 
     const view = new EditorView({ state, parent: container });
     viewRef.current = view;
+    if (highlightWordsRef.current.length > 0) view.dispatch({ effects: setSearchWords.of(highlightWordsRef.current) });
     if (autoFocus) view.focus();
 
     return () => {
@@ -86,6 +93,12 @@ export function CardTextEditor({ vaultRoot, value, onChange, onNavigate, readOnl
     // warrants a fresh instance.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [vaultRoot, readOnly]);
+
+  // A new search (words joined, so an unchanged search isn't a change) marks the text anew.
+  const highlightKey = highlightWords.join(' ');
+  useEffect(() => {
+    viewRef.current?.dispatch({ effects: setSearchWords.of(highlightWordsRef.current) });
+  }, [highlightKey]);
 
   // Entering edit mode (a click on the card) hands the caret to the editor,
   // at the end of the text. Runs after the render that clears `inert`.
