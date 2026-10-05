@@ -16,6 +16,7 @@ const COMMANDS: SlashCommand[] = [
   { label: 'Quote', snippet: '> ', cursorOffset: 2 },
   { label: 'Code block', snippet: '```\n\n```', cursorOffset: 4 },
   { label: 'Divider', snippet: '---\n', cursorOffset: 4 },
+  { label: 'Table', snippet: '| Column 1 | Column 2 | Column 3 |\n| -------- | -------- | -------- |\n|          |          |          |\n|          |          |          |\n', cursorOffset: 140 },
   { label: 'Image', snippet: '![]()', cursorOffset: 2 },
   { label: 'Wikilink', snippet: '[[]]', cursorOffset: 2 },
 ];
@@ -69,7 +70,9 @@ class SlashMenu {
     const query = match[1].toLowerCase();
     this.items = COMMANDS.filter((cmd) => cmd.label.toLowerCase().includes(query));
     this.selectedIndex = 0;
-    this.render(pos);
+    // `coordsAtPos` reads layout, which CodeMirror forbids mid-update — draw
+    // once the update has finished.
+    queueMicrotask(() => this.render(this.view.state.selection.main.head));
   }
 
   private render(pos: number) {
