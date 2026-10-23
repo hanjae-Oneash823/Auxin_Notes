@@ -50,7 +50,9 @@ export const auxinEditorTheme = EditorView.theme(
       // clamps scroll to the content's natural height.
       paddingBottom: 'var(--space-scroll-overscroll)',
       caretColor: 'var(--accent-caret)',
-      maxWidth: 'var(--width-content-max)',
+      // Never closer to the pane's edges than the contents dots' gutter, in a thin pane. A max-width, not a
+      // width: this is a flex item of .cm-scroller with flex-grow, which would override a width.
+      maxWidth: 'min(var(--width-content-max), calc(100% - 2 * var(--space-toc-gutter)))',
       transition: 'var(--transition-content-width)',
       margin: '0 auto',
     },

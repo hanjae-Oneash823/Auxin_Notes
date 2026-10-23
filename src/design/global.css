@@ -521,7 +521,7 @@ body {
   border-radius: 2px;
 }
 
-/* Planner page open/close (planner/PlannerOverlay.tsx). The exit duration must
+/* Planner and Health page open/close (layout/PageOverlay.tsx). The exit duration must
    match EXIT_MS there. */
 @keyframes planner-in {
   from { opacity: 0; transform: translateY(12px); }
@@ -533,7 +533,59 @@ body {
 }
 .planner-in { animation: planner-in 240ms var(--ease-panel); }
 .planner-out { animation: planner-out 180ms var(--ease-panel) forwards; }
+/* Routine editor over the Routines calendar (planner/RoutinesView.tsx). The exit duration must
+   match EDITOR_EXIT_MS there. */
+@keyframes routine-editor-in {
+  from { opacity: 0; transform: translateX(16px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+@keyframes routine-editor-out {
+  from { opacity: 1; transform: translateX(0); }
+  to { opacity: 0; transform: translateX(16px); }
+}
+.routine-editor-in { animation: routine-editor-in 240ms var(--ease-panel); }
+.routine-editor-out { animation: routine-editor-out 180ms var(--ease-panel) forwards; }
 @media (prefers-reduced-motion: reduce) {
+  .routine-editor-in,
+  .routine-editor-out,
   .planner-in,
   .planner-out { animation: none; }
+}
+
+/* The sprint cards' run cycle (planner/RunnerFigure.tsx): a sprite sheet of six poses slid left one
+   whole frame at a time. The animation duration is set per card (faster as the sprint nears done). */
+@keyframes sprint-runner {
+  to { transform: translateX(-100%); }
+}
+.sprint-runner { animation: sprint-runner 1s steps(6) infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .sprint-runner { animation: none; }
+}
+
+/* The arc box's sparklines (planner/Sparkline.tsx): a soft ring expands from each line's latest value, then fades. */
+@keyframes spark-ping {
+  0% { transform: scale(1); opacity: 0.55; }
+  70%, 100% { transform: scale(3.4); opacity: 0; }
+}
+.spark-ping {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: spark-ping 2.8s ease-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .spark-ping { animation: none; opacity: 0; }
+}
+
+/* The Tasks tab card currently being worked on: its green border pulses between faint and full (no glow). */
+@keyframes doing-pulse {
+  0%, 100% {
+    border-color: color-mix(in srgb, var(--accent-status-dot) 35%, transparent);
+  }
+  50% {
+    border-color: var(--accent-status-dot);
+  }
+}
+.doing-pulse { animation: doing-pulse 1.8s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .doing-pulse { animation: none; }
 }

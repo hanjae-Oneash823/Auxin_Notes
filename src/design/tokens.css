@@ -125,6 +125,8 @@
   --space-content-md: 24px;
   --space-content-lg: 32px;
   --space-content-xl: 40px;
+  /* Per-side room the editor keeps free for the contents dots (TocDots.tsx) in a thin pane. */
+  --space-toc-gutter: 40px;
   /* Editor line-rhythm gaps only (not general UI chrome) — kept apart from
      space-chrome-* so tuning paragraph/list line spacing can't shift button
      or chip padding elsewhere. Sized well past the editor's own (tightened)
