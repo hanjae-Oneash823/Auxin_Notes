@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { DragEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, WheelEvent as ReactWheelEvent } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { AnimatePresence, MotionConfig } from 'framer-motion';
+import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { message } from '@tauri-apps/plugin-dialog';
 import { ulid } from 'ulid';
 import { parseCanvasDocument } from '../vault/parseCanvas';
@@ -14,6 +15,7 @@ import { buildArrowPath } from './arrowPath';
 import { useArrowRoutes } from './useArrowRoutes';
 import { CanvasArrow, CanvasArrowDefs } from './CanvasArrow';
 import { CanvasCard } from './CanvasCard';
+import { ImagePreview } from './ImagePreview';
 import { ContextMenu, type ContextMenuItem } from '../layout/ContextMenu';
 import { buildArrowMenu, buildBackgroundMenu, buildCardMenu, buildGroupMenu } from './canvasContextMenu';
 import { GroupFrame } from './GroupFrame';
@@ -59,7 +61,7 @@ import { EditToolbar } from './EditToolbar';
 import { Minimap, MINIMAP_RIGHT_INSET_PX, useMinimapOpen } from './Minimap';
 import { unionRects } from './minimapGeometry';
 import { ExportToolbar } from './ExportToolbar';
-import { exportBoardAsImage, pickImageExportPath } from './exportImage';
+import { describeExportError, exportBoardAsImage, pickImageExportPath, READABLE_MIN_PIXEL_RATIO } from './exportImage';
 import { useCanvasHistory, type HistoryMode } from './useCanvasHistory';
 import { getSavedView, saveView } from './canvasViewStore';
 import { useIsMetaHeld } from './useIsMetaHeld';
@@ -166,6 +168,8 @@ export function CanvasView({ path, vaultRoot, isReadOnly, onNavigate, onSynced }
   // the single keyboard-nav anchor; this tracks the (possibly larger) set a
   // marquee, click, or group drag/delete should act on.
   const [selectedCardIds, setSelectedCardIds] = useState<Set<string>>(new Set());
+  // The image card shown full-view (Space on a selected image); null = closed.
+  const [previewCardId, setPreviewCardId] = useState<string | null>(null);
   // Set once, right when a card is created via typing/Tab+direction, so that
   // one card's mini-editor grabs real DOM focus on mount — distinct from
   // `focusedCardId` (the board-level selection ring), which must never pull
@@ -988,10 +992,29 @@ export function CanvasView({ path, vaultRoot, isReadOnly, onNavigate, onSynced }
     if (optimizePass === null) history.redo();
   }
 
+  /** Space on a single selected image opens it full-view; Space or Esc closes it. Returns true when the key was taken. */
+  function handlePreviewKey(event: KeyboardEvent): boolean {
+    const isSpace = event.code === 'Space' && !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey;
+    if (!(isSpace || event.code === 'Escape') || event.repeat || isTypingTarget(event.target)) return false;
+    if (viewportRef.current?.getClientRects().length === 0) return false; // a canvas tab that isn't showing
+    if (previewCardId !== null) {
+      event.preventDefault();
+      setPreviewCardId(null);
+      return true;
+    }
+    if (!isSpace || selectedCardIds.size !== 1) return false;
+    const [selectedId] = selectedCardIds;
+    if (docRef.current?.cards.find((c) => c.id === selectedId)?.content.type !== 'image') return false;
+    event.preventDefault();
+    setPreviewCardId(selectedId);
+    return true;
+  }
+
   /** ⌘Z / ⇧⌘Z / ⌘C / ⌘D / ⌘G (group the selection). Copy and paste normally arrive as clipboard events
    *  (handled above); the ⌘C key path here covers the case where the native
    *  Edit menu leaves the key to the page. */
   function handleShortcut(event: KeyboardEvent) {
+    if (handlePreviewKey(event)) return;
     if (!(event.metaKey || event.ctrlKey) || event.altKey || isTypingTarget(event.target)) return;
     if (event.code === 'KeyZ') {
       event.preventDefault();
@@ -1306,10 +1329,16 @@ export function CanvasView({ path, vaultRoot, isReadOnly, onNavigate, onSynced }
       setEditingCardId(null);
       setLabelEdit(null);
       await nextPaint();
-      await exportBoardAsImage(layer, vaultRoot, bounds, zoomRef.current, target);
+      const pixelRatio = await exportBoardAsImage(layer, vaultRoot, bounds, zoomRef.current, target);
+      if (pixelRatio < READABLE_MIN_PIXEL_RATIO) {
+        await message(
+          `This board is too large to export at full detail (${pixelRatio.toFixed(2)}× instead of 3×), so small card text may be hard to read. Moving far-apart cards closer together gives a sharper image.`,
+          { title: 'Exported at reduced resolution', kind: 'warning' },
+        );
+      }
     } catch (error: unknown) {
       console.error('canvas image export failed', error);
-      await message(`Could not export the image: ${error instanceof Error ? error.message : String(error)}`, {
+      await message(`Could not export the image: ${describeExportError(error)}`, {
         title: 'Export failed',
         kind: 'error',
       });
@@ -1476,6 +1505,7 @@ export function CanvasView({ path, vaultRoot, isReadOnly, onNavigate, onSynced }
   // With cards selected, the rest of the board fades back (null = nothing selected).
   const focus = selectionFocus(selectedCardIds, doc.arrows);
   const cardsById = new Map(doc.cards.map((card) => [card.id, card]));
+  const previewCard = previewCardId !== null ? cardsById.get(previewCardId) : undefined;
   const frames = groupFrames(doc.cards, doc.groups);
   const groupsById = indexGroups(doc.groups);
   const groupDepth = groupDepths(doc.groups);
@@ -1736,6 +1766,18 @@ export function CanvasView({ path, vaultRoot, isReadOnly, onNavigate, onSynced }
         </ToolbarShell>
         )}
       </div>
+      <MotionConfig reducedMotion="user">
+        <AnimatePresence>
+          {previewCard?.content.type === 'image' && (
+            <ImagePreview
+              key={previewCard.id}
+              src={convertFileSrc(`${vaultRoot}/${previewCard.content.path}`)}
+              alt={previewCard.content.caption ?? ''}
+              onClose={() => setPreviewCardId(null)}
+            />
+          )}
+        </AnimatePresence>
+      </MotionConfig>
       {menu && (
         <ContextMenu
           key={menu.id}
