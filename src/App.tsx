@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { revealItemInDir } from '@tauri-apps/plugin-opener';
@@ -21,7 +21,7 @@ import { useSleepStore } from './health/sleepStore';
 import { RightPanelHeader } from './layout/RightPanel';
 import { RIGHT_PANEL_LAYERS, usePanelLayoutStore } from './layout/panelLayoutStore';
 import { AnimatePresence } from 'framer-motion';
-import { FilePdf, FilePlus, FolderOpen, FolderPlus, Stack, Tree, X } from '@phosphor-icons/react';
+import { FileDoc, FilePdf, FilePlus, FolderOpen, FolderPlus, Stack, Tree, X } from '@phosphor-icons/react';
 import { animateCloseAll } from './layout/tabCloseAnimation';
 import { animateFolderDelete } from './layout/folderDeleteAnimation';
 import { flyCardToTab } from './layout/flyToTab';
@@ -43,6 +43,8 @@ import { HubView } from './notes/HubView';
 import { formatFolder } from './notes/noteStats';
 import { useOpenNoteStats } from './notes/useOpenNoteStats';
 import { CanvasView } from './canvas/CanvasView';
+import { DocumentView } from './document/DocumentView';
+import { DOC_EXTENSION, isDocPath, newDocFileText } from './vault/docTypes';
 import { PdfView } from './pdf/PdfView';
 import { ImportedPdfsDock } from './pdf/ImportedPdfsDock';
 import { CanvasesDock } from './canvas/CanvasesDock';
@@ -67,7 +69,8 @@ import { useStickyStore } from './sticky/stickyStore';
 import { useGlobalCaptureShortcut } from './sticky/useGlobalCaptureShortcut';
 import { StickyBoard } from './sticky/StickyBoard';
 import { PlannerAnalyticsPane } from './planner/analytics/PlannerAnalyticsPane';
-import { PlannerOverlay } from './planner/PlannerOverlay';
+import { PageOverlay } from './layout/PageOverlay';
+import { PlannerView } from './planner/PlannerView';
 import { usePlannerStore } from './planner/plannerStore';
 import { useSessionStore } from './planner/sessionStore';
 import { PlannerArea } from './layout/PlannerArea';
@@ -184,6 +187,40 @@ function VaultReady({
   const [isBubbleMode, setIsBubbleMode] = useState(false);
   const [isPlannerMode, setIsPlannerMode] = useState(false);
   const [isHealthMode, setIsHealthMode] = useState(false);
+
+  /** Opens the Planner (switching every other mode off) or closes it; the sidebar button and Cmd+P both run this. */
+  const togglePlanner = useCallback(() => {
+    setIsPlannerMode((mode) => !mode);
+    setIsStickyMode(false);
+    setIsBubbleMode(false);
+    setIsHealthMode(false);
+    setIsGraphMode(false);
+    setIsGraph2DMode(false);
+  }, []);
+
+  /** Opens Health & Habits (switching every other mode off) or closes it; the sidebar button and Cmd+H both run this. */
+  const toggleHealth = useCallback(() => {
+    setIsHealthMode((mode) => !mode);
+    setIsPlannerMode(false);
+    setIsStickyMode(false);
+    setIsBubbleMode(false);
+    setIsGraphMode(false);
+    setIsGraph2DMode(false);
+  }, []);
+
+  // Cmd+P toggles the Planner, Cmd+H Health & Habits. Matched on `code` (layout-independent) and with
+  // preventDefault so the webview never treats it as Print. Cmd+Opt/Shift+P is left alone.
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      if (!event.metaKey || event.altKey || event.shiftKey || event.ctrlKey || (event.code !== 'KeyP' && event.code !== 'KeyH')) return;
+      event.preventDefault();
+      if (event.code === 'KeyP') togglePlanner();
+      else toggleHealth();
+    }
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [togglePlanner, toggleHealth]);
+
   const loadStickyNotes = useStickyStore((state) => state.load);
   const loadPlanner = usePlannerStore((state) => state.load);
   const loadSessions = useSessionStore((state) => state.load);
@@ -374,6 +411,21 @@ function VaultReady({
     );
     await refreshNotes();
     openAbsolutePath(absolutePath);
+  }
+
+  /** Same shape as `createCanvas`, but writes an empty `.axdoc` paginated document. */
+  async function createDocument(folderPath?: string) {
+    const title = `Untitled Document ${Date.now()}`;
+    const relativePath = folderPath ? `${folderPath}/${title}${DOC_EXTENSION}` : `${title}${DOC_EXTENSION}`;
+    const absolutePath = `${vaultRoot}/${relativePath}`;
+    await invoke('write_note', { path: absolutePath, content: newDocFileText() });
+    await syncFile(vaultRoot, absolutePath);
+    void logUsageEvent(vaultRoot, { type: 'create', path: relativePath, title, detail: { kind: 'document' } }).catch(
+      (error: unknown) => console.error('[usage] failed to log event', error),
+    );
+    await refreshNotes();
+    openAbsolutePath(absolutePath);
+    setIsReadingMode(false);
   }
 
   /** Same shape as `createNote`, but pre-fills the fenced ```hub config block
@@ -579,6 +631,15 @@ function VaultReady({
     if (!isRightSidebarOpen) toggleRightSidebar('right');
   }
 
+  /** Shows the folder containing a tab's file in the right panel's file browser. */
+  function openTabInFileBrowser(tabId: string) {
+    const relative = tabId.startsWith(`${vaultRoot}/`) ? tabId.slice(vaultRoot.length + 1) : tabId;
+    usePanelLayoutStore.getState().setBrowserPath(relative.split('/').slice(0, -1).join('/'));
+    setFilesView('browser');
+    setRightLayer('files');
+    if (!isRightSidebarOpen) toggleRightSidebar('right');
+  }
+
   async function handleRenameFolder(folderPath: string, newName: string) {
     try {
       const newPath = await renameFolder(vaultRoot, folderPath, newName);
@@ -779,8 +840,12 @@ function VaultReady({
             onRename={renameWorkspace}
             onDelete={deleteWorkspace}
           />
-          <div className="-mt-1.5">
+          <div className="-mt-2.5">
           <SidebarNav
+            isHomeActive={activeTabId === HOME_TAB_ID}
+            onSelectHome={() => selectTab(HOME_TAB_ID)}
+            isHealthActive={isHealthMode}
+            onToggleHealth={toggleHealth}
             isPdfsOpen={isPdfsOpen}
             onTogglePdfs={() => {
               setIsPdfsOpen((isOpen) => !isOpen);
@@ -821,7 +886,7 @@ function VaultReady({
             actions={<CloseAllTabsButton isDisabled={cardTabItems.length <= 1} onConfirm={() => void animateCloseAll().then(closeAllTabs)} />}
           >
             <TabBar
-              tabs={cardTabItems}
+              tabs={cardTabItems.filter((tab) => tab.id !== HOME_TAB_ID)}
               activeTabId={activeTabId}
               vaultRoot={vaultRoot}
               onSelect={selectTab}
@@ -834,10 +899,12 @@ function VaultReady({
               onMoveToWorkspace={moveTabToWorkspace}
               onDuplicateToWorkspace={duplicateTabToWorkspace}
               onRevealInFinder={(tabId) => void revealItemInDir(tabId)}
+              onOpenInFileBrowser={openTabInFileBrowser}
               otherWorkspaces={workspaceNames.filter((name) => name !== currentWorkspace)}
               onReorder={reorderTabs}
               onNewNote={(path) => void createNote(path)}
               onNewCanvas={(path) => void createCanvas(path)}
+              onNewDocument={(path) => void createDocument(path)}
               onImportPdf={(path) => void importPdfs(path)}
               onNewSubfolder={(path) => void handleCreateFolderAt(path)}
               onRenameFolder={(folderPath, newName) => void handleRenameFolder(folderPath, newName)}
@@ -851,6 +918,7 @@ function VaultReady({
               // Its scrollbar would show beside the imported-PDFs popup that covers it.
               className={`sidebar-scroll -mr-3.5 min-h-0 flex-1 pr-2.5 ${isDockOpen ? '!overflow-y-hidden' : ''}`}
             />
+            <div className="h-px shrink-0 bg-border-subtle" />
           </SidebarPacket>
           <AnimatePresence>
           {isPdfsOpen && (
@@ -915,23 +983,7 @@ function VaultReady({
           <div className="-mt-1.5">
           <PlannerArea
             isActive={isPlannerMode}
-            onToggle={() => {
-              setIsPlannerMode((mode) => !mode);
-              setIsStickyMode(false);
-              setIsBubbleMode(false);
-              setIsHealthMode(false);
-              setIsGraphMode(false);
-              setIsGraph2DMode(false);
-            }}
-            isHealthActive={isHealthMode}
-            onToggleHealth={() => {
-              setIsHealthMode((mode) => !mode);
-              setIsPlannerMode(false);
-              setIsStickyMode(false);
-              setIsBubbleMode(false);
-              setIsGraphMode(false);
-              setIsGraph2DMode(false);
-            }}
+            onToggle={togglePlanner}
           />
           </div>
         </Sidebar>
@@ -956,6 +1008,9 @@ function VaultReady({
                       </PacketIconButton>
                       <PacketIconButton title="new canvas" onClick={() => void createCanvas()}>
                         <Stack size={15} />
+                      </PacketIconButton>
+                      <PacketIconButton title="new document" onClick={() => void createDocument()}>
+                        <FileDoc size={15} />
                       </PacketIconButton>
                       <PacketIconButton title="import pdf" onClick={() => void importPdfs('')}>
                         <FilePdf size={15} />
@@ -1111,8 +1166,6 @@ function VaultReady({
             />
           ) : isStickyMode ? (
             <StickyBoard />
-          ) : isHealthMode ? (
-            <HealthHabitsView />
           ) : isBubbleMode ? (
             <BubbleNavigatorView
               notes={treeAllNotes}
@@ -1141,6 +1194,8 @@ function VaultReady({
               onAddNote={(content) => activePdf && void addNoteToPdf(activePdf, content)}
               readOnly={isReadingMode}
             />
+          ) : activePath && isDocPath(activePath) ? (
+            <DocumentView key={activePath} path={activePath} vaultRoot={vaultRoot} isReadOnly={isReadingMode} onSynced={refreshNotes} />
           ) : activePath && activeNote?.isCanvas ? (
             <CanvasView key={activePath} path={activePath} vaultRoot={vaultRoot} isReadOnly={isReadingMode} onNavigate={openRelativePath} onSynced={refreshNotes} />
           ) : activePath && activeNote?.isHub && forceEditPath !== activePath ? (
@@ -1191,7 +1246,8 @@ function VaultReady({
               onSwitchWorkspace={switchWorkspace}
             />
           )}
-          <PlannerOverlay isOpen={isPlannerMode} />
+          <PageOverlay isOpen={isPlannerMode}><PlannerView /></PageOverlay>
+          <PageOverlay isOpen={isHealthMode}><HealthHabitsView /></PageOverlay>
         </div>
       </div>
     </AppShell>
@@ -1231,7 +1287,7 @@ function App() {
   const tabItems: TabItem[] = tabs.map((id) => ({
     id,
     label: id === HOME_TAB_ID ? 'Home' : titleFromPath(id),
-    kind: id === HOME_TAB_ID ? 'home' : id.endsWith(CANVAS_EXTENSION) ? 'canvas' : isPdfPath(id) ? 'pdf' : 'note',
+    kind: id === HOME_TAB_ID ? 'home' : id.endsWith(CANVAS_EXTENSION) ? 'canvas' : isDocPath(id) ? 'document' : isPdfPath(id) ? 'pdf' : 'note',
     closable: id !== HOME_TAB_ID,
     isFlagged: workspaces.flaggedTabs.includes(id),
   }));
