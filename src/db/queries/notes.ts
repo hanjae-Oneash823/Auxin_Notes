@@ -1,4 +1,5 @@
 import type Database from '@tauri-apps/plugin-sql';
+import { isDocPath } from '../../vault/docTypes';
 
 export interface NoteSummary {
   id: string;
@@ -13,6 +14,8 @@ export interface NoteSummary {
   isCanvas: boolean;
   /** A `.pdf` file, listed from disk rather than the index (see pdf/pdfFiles.ts). */
   isPdf: boolean;
+  /** Path ends in `.axdoc` — a paginated rich-text document (see vault/docTypes.ts). */
+  isDocument?: boolean;
   /** File size in bytes; only set on PDFs (from the disk listing). */
   sizeBytes?: number;
 }
@@ -42,6 +45,7 @@ function toSummary(row: NoteRow): NoteSummary {
     isHub: row.is_hub === 1,
     isCanvas: row.is_canvas === 1,
     isPdf: false,
+    isDocument: isDocPath(row.path),
   };
 }
 

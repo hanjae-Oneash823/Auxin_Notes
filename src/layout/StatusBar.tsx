@@ -91,7 +91,7 @@ export function StatusBar({
         [settings]
       </button>
       {settingsOpen && (
-        <div className="absolute bottom-full right-3 z-10 mb-1">
+        <div className="absolute bottom-full right-3 z-50 mb-1">
           <SettingsPanel />
         </div>
       )}

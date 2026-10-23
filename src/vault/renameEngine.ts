@@ -3,6 +3,7 @@ import { getDb } from '../db/client';
 import { logUsageEvent } from '../db/usageEvents';
 import { getEditorView } from '../editor/editorRegistry';
 import { CANVAS_EXTENSION } from './canvasTypes';
+import { DOC_EXTENSION } from './docTypes';
 import { parseCanvasDocument } from './parseCanvas';
 import { syncFile, syncFileAsRename } from './syncEngine';
 import type { CanvasCard, CanvasDocument } from './canvasTypes';
@@ -366,6 +367,10 @@ function applyEditsToText(text: string, edits: WikilinkEdit[]): string {
 function replaceFileNameInPath(relativePath: string, newTitle: string): string {
   const slashIndex = relativePath.lastIndexOf('/');
   const dir = slashIndex >= 0 ? relativePath.slice(0, slashIndex + 1) : '';
-  const extension = relativePath.endsWith(CANVAS_EXTENSION) ? CANVAS_EXTENSION : '.md';
+  const extension = relativePath.endsWith(CANVAS_EXTENSION)
+    ? CANVAS_EXTENSION
+    : relativePath.endsWith(DOC_EXTENSION)
+      ? DOC_EXTENSION
+      : '.md';
   return `${dir}${newTitle}${extension}`;
 }

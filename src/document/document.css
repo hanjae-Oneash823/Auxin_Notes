@@ -1,0 +1,130 @@
+/* Document (.axdoc) view. The sheets are white in BOTH themes by design — only the
+   gutter around them follows the app theme. */
+
+.doc-root {
+  --doc-gutter: #1d1d20;
+  --paper: #ffffff;
+  --paper-ink: #202124;
+  --paper-rule: #c4c7c5;
+  --paper-soft: #5f6368;
+  --paper-select: #d3e3fd;
+}
+[data-theme='light'] .doc-root {
+  --doc-gutter: #d6d4cf;
+}
+
+.doc-scroll {
+  background: var(--doc-gutter);
+}
+
+/* ---- the sheet stack: tiptap-pagination-plus styles the editor element itself ---- */
+.doc-sheet .ProseMirror {
+  background: var(--paper);
+  color: var(--paper-ink);
+  caret-color: var(--paper-ink);
+  font: 11pt/1.5 Arial, Helvetica, sans-serif;
+  outline: none;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+  box-sizing: content-box;
+  word-wrap: break-word;
+}
+.doc-sheet .ProseMirror ::selection {
+  background: var(--paper-select);
+}
+.doc-sheet .ProseMirror .rm-page-footer,
+.doc-sheet .ProseMirror .rm-page-header {
+  color: var(--paper-soft);
+  font-size: 9pt;
+}
+
+/* Tailwind's preflight strips these; a document needs them back. */
+.doc-sheet .ProseMirror p { margin: 0; min-height: 1.5em; }
+.doc-sheet .ProseMirror h1 { font-size: 20pt; font-weight: 700; margin: 0.6em 0 0.2em; line-height: 1.25; }
+.doc-sheet .ProseMirror h2 { font-size: 16pt; font-weight: 700; margin: 0.6em 0 0.2em; line-height: 1.25; }
+.doc-sheet .ProseMirror h3 { font-size: 13pt; font-weight: 700; margin: 0.5em 0 0.2em; line-height: 1.3; }
+.doc-sheet .ProseMirror ul { list-style: disc; padding-left: 1.5em; margin: 0; }
+.doc-sheet .ProseMirror ol { list-style: decimal; padding-left: 1.5em; margin: 0; }
+.doc-sheet .ProseMirror li > p { min-height: 0; }
+.doc-sheet .ProseMirror blockquote { border-left: 3px solid var(--paper-rule); margin: 0.5em 0; padding-left: 1em; color: var(--paper-soft); }
+.doc-sheet .ProseMirror code { background: #f1f3f4; border-radius: 3px; padding: 0 3px; font-family: 'Courier New', monospace; }
+.doc-sheet .ProseMirror pre { background: #f1f3f4; border-radius: 4px; padding: 0.6em 0.8em; font-family: 'Courier New', monospace; }
+.doc-sheet .ProseMirror hr { border: 0; border-top: 1px solid var(--paper-rule); margin: 1em 0; }
+.doc-sheet .ProseMirror a { color: #1a0dab; text-decoration: underline; cursor: text; }
+.doc-sheet .ProseMirror mark { color: inherit; }
+
+/* ---- tables ---- */
+.doc-sheet .ProseMirror table { border-collapse: collapse; table-layout: fixed; width: 100%; margin: 0.5em 0; overflow: hidden; }
+.doc-sheet .ProseMirror td,
+.doc-sheet .ProseMirror th {
+  border: 1px solid var(--paper-rule);
+  padding: 4px 8px;
+  vertical-align: top;
+  position: relative;
+  min-width: 1em;
+  box-sizing: border-box;
+}
+.doc-sheet .ProseMirror th { background: #f1f3f4; font-weight: 700; text-align: left; }
+.doc-sheet .ProseMirror td > p,
+.doc-sheet .ProseMirror th > p { margin: 0; }
+.doc-sheet .ProseMirror .selectedCell::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: rgba(26, 115, 232, 0.18);
+  pointer-events: none;
+}
+.doc-sheet .ProseMirror .column-resize-handle {
+  position: absolute;
+  right: -2px;
+  top: 0;
+  bottom: -1px;
+  width: 4px;
+  background: #1a73e8;
+  pointer-events: none;
+}
+.doc-sheet .ProseMirror.resize-cursor { cursor: col-resize; }
+
+/* ---- images ---- */
+.doc-image { margin: 0.25em 0; }
+.doc-image-frame { position: relative; max-width: 100%; line-height: 0; cursor: default; user-select: none; }
+.doc-image-clip { position: absolute; inset: 0; overflow: hidden; }
+.doc-image-clip img { position: absolute; max-width: none; display: block; }
+.doc-image-frame.is-selected { outline: 2px solid #1a73e8; outline-offset: 0; }
+.doc-image-frame.is-cropping { outline: 2px dashed #1a73e8; cursor: move; }
+.doc-image-handle {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  transform: translate(-50%, -50%);
+  background: #fff;
+  border: 1.5px solid #1a73e8;
+  border-radius: 2px;
+  z-index: 3;
+}
+
+/* ---- print (the PDF export path): sheets only, no app chrome, no gutter ---- */
+@media print {
+  html.doc-printing,
+  html.doc-printing body,
+  html.doc-printing #root {
+    height: auto !important;
+    overflow: visible !important;
+    background: #fff !important;
+  }
+  html.doc-printing body * { visibility: hidden; }
+  html.doc-printing .doc-sheet,
+  html.doc-printing .doc-sheet * { visibility: visible; }
+  html.doc-printing .doc-sheet {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: auto !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+  html.doc-printing .doc-sheet .ProseMirror { box-shadow: none; border: 0 !important; }
+  html.doc-printing .doc-sheet .rm-pagination-gap { display: none; }
+  html.doc-printing .doc-sheet .rm-page-break { break-after: page; }
+  html.doc-printing .doc-image-frame { outline: none !important; }
+  html.doc-printing .doc-image-handle { display: none; }
+}

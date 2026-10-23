@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { CaretRight, FilePdf, FileText, FilePlus, Flag, FolderPlus, House, Plus, Stack, SquaresFour, X, type Icon } from '@phosphor-icons/react';
+import { CaretRight, FileDoc, FilePdf, FileText, FilePlus, Flag, FolderPlus, House, Plus, Stack, SquaresFour, X, type Icon } from '@phosphor-icons/react';
 import { formatCount, formatRelativeTime, type NoteStats } from '../notes/noteStats';
 import { getDb } from '../db/client';
 import { getCollapsedTabGroups, setCollapsedTabGroups } from '../db/queries/folderState';
@@ -23,7 +23,7 @@ import { trackGlow } from './trackGlow';
  *  state) and this file (which needs to style it distinctly) agree on it. */
 export const HOME_TAB_ID = 'home';
 
-export type TabKind = 'home' | 'note' | 'hub' | 'canvas' | 'pdf';
+export type TabKind = 'home' | 'note' | 'hub' | 'canvas' | 'document' | 'pdf';
 
 export interface TabItem {
   id: string;
@@ -48,6 +48,7 @@ const TAB_ICONS: Record<TabKind, Icon> = {
   note: FileText,
   hub: SquaresFour,
   canvas: Stack,
+  document: FileDoc,
   pdf: FilePdf,
 };
 
@@ -101,6 +102,8 @@ interface TabBarProps {
   onDuplicateToWorkspace: (id: string, workspaceName: string) => void;
   /** `id` is the tab's absolute file path. */
   onRevealInFinder: (id: string) => void;
+  /** Opens the folder holding the tab's file in the right panel's file browser. */
+  onOpenInFileBrowser: (id: string) => void;
   /** Workspaces a tab can be moved to (every one but the current). */
   otherWorkspaces: string[];
   /** Reorders tabs by dragging — moves `draggedId` next to `targetId`,
@@ -117,6 +120,7 @@ interface TabBarProps {
    *  over already-built, so this just creates it at that exact path. */
   onNewNote: (folderPath: string) => void;
   onNewCanvas: (folderPath: string) => void;
+  onNewDocument: (folderPath: string) => void;
   onImportPdf: (folderPath: string) => void;
   onNewSubfolder: (relativePath: string) => void;
   /** Commits the inline rename box a new subfolder drops into (see
@@ -226,10 +230,12 @@ export function TabBar({
   onMoveToWorkspace,
   onDuplicateToWorkspace,
   onRevealInFinder,
+  onOpenInFileBrowser,
   otherWorkspaces,
   onReorder,
   onNewNote,
   onNewCanvas,
+  onNewDocument,
   onImportPdf,
   onNewSubfolder,
   onRenameFolder,
@@ -813,6 +819,9 @@ export function TabBar({
             <PacketIconButton title="New canvas" onClick={() => onNewCanvas(node.path)}>
               <Stack size={12} />
             </PacketIconButton>
+            <PacketIconButton title="New document" onClick={() => onNewDocument(node.path)}>
+              <FileDoc size={12} />
+            </PacketIconButton>
             <PacketIconButton title="Import PDF" isRed onClick={() => onImportPdf(node.path)}>
               <FilePdf size={12} />
             </PacketIconButton>
@@ -852,7 +861,7 @@ export function TabBar({
           clearMoreNotesOpenTimer();
           scheduleMoreNotesClose();
         }}
-        className="-mt-0.5 self-start rounded-row px-1 py-0 text-left text-fg-faint transition-colors duration-panel ease-panel hover:text-fg-muted"
+        className="-mt-2 self-start rounded-row px-1 py-0 text-left text-fg-faint transition-colors duration-panel ease-panel hover:text-fg-muted"
         style={{ fontSize: '0.72rem' }}
       >
         {count} more in this folder
@@ -953,6 +962,7 @@ export function TabBar({
             }
           : { label: 'Duplicate to workspace (none other)', disabled: true },
         agentMenuItem(agentTargetFromPath(tabMenu.tab.id, false)),
+        { label: 'Open in file browser', onSelect: () => onOpenInFileBrowser(tabMenu.tab.id) },
         { label: 'Show in Finder', onSelect: () => onRevealInFinder(tabMenu.tab.id) },
         {
           label: 'Copy path',

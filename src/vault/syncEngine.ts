@@ -7,6 +7,7 @@ import { extractLegacyFrontmatter } from './parseFrontmatter';
 import { parseHubBlock } from './parseHubBlock';
 import { CANVAS_EXTENSION } from './canvasTypes';
 import { canvasLinks, canvasSearchableBody, parseCanvasDocument } from './parseCanvas';
+import { DOC_EXTENSION, docSearchableText, parseDocFile } from './docTypes';
 import { countWords, parseInlineTags, parseLinks } from './parseLinksAndTags';
 import { pathQualifiedTarget, resolveLinkTarget } from './aliasResolution';
 import type { ParsedNote } from './types';
@@ -93,6 +94,28 @@ function parseCanvasNote(raw: string, path: string): ParsedNote {
   };
 }
 
+/** A `.axdoc` file indexed as its plain text (search + word count); documents
+ *  carry no wikilinks or tags in v1. Can throw on malformed JSON — see the
+ *  caller's skip-and-log guard. */
+function parseDocNote(raw: string, path: string): ParsedNote {
+  const text = docSearchableText(parseDocFile(raw).content);
+  const now = new Date().toISOString();
+  return {
+    created: now,
+    modified: now,
+    body: text,
+    title: titleFromPath(path),
+    wordCount: countWords(text),
+    contentHash: hashContent(raw),
+    links: [],
+    tags: [],
+    isHub: false,
+    hubFolder: null,
+    hubRecursive: true,
+    isCanvas: false,
+  };
+}
+
 /**
  * Reads, parses, and indexes one absolute path inside the vault. Strips a
  * legacy frontmatter block if one is found (writing the file once), then
@@ -156,6 +179,16 @@ async function syncRawContent(
       return;
     }
     await upsertParsedNote(db, vaultRoot, absolutePath, note, knownId);
+    return;
+  }
+
+  if (absolutePath.endsWith(DOC_EXTENSION)) {
+    try {
+      await upsertParsedNote(db, vaultRoot, absolutePath, parseDocNote(raw, absolutePath), knownId);
+    } catch (error) {
+      // Same one-malformed-file-can't-break-the-batch guarantee as canvases.
+      console.error(`[vault] skipping malformed document file "${absolutePath}":`, error);
+    }
     return;
   }
 

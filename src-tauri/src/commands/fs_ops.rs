@@ -198,6 +198,13 @@ pub fn import_file(dest_dir: String, source_path: String) -> Result<String, Stri
 /// build time — this is called once, right after a vault is opened
 /// (vaultStore.ts), to widen the scope to that specific directory instead.
 #[tauri::command]
+pub fn print_window(window: tauri::WebviewWindow) -> Result<(), String> {
+    // Opens the OS print dialog for this webview — on macOS its "PDF" menu is
+    // how a document gets exported as a real (vector, selectable-text) PDF.
+    window.print().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub fn allow_vault_asset_access(app: tauri::AppHandle, path: String) -> Result<(), String> {
     use tauri::Manager;
     app.asset_protocol_scope()

@@ -5,7 +5,7 @@
  *  for the Rust-side counterpart of this list). */
 export function titleFromPath(path: string): string {
   const fileName = path.split('/').pop() ?? path;
-  return fileName.replace(/\.(md|axcanvas|pdf)$/, '');
+  return fileName.replace(/\.(md|axcanvas|axdoc|pdf)$/, '');
 }
 
 /** A path's containing folder ('' for the vault root or a top-level file). */
