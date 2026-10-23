@@ -1,3 +1,4 @@
+import { createPortal } from 'react-dom';
 import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
 
 const TOOLTIP_DELAY_MS = 150;
@@ -23,7 +24,7 @@ interface HoverTooltip {
   };
   /** Dismiss immediately (e.g. on click). */
   hide: () => void;
-  /** Render this anywhere in the tree — it positions itself with `fixed`. */
+  /** Render this anywhere in the tree — it portals to <body> and positions itself with `fixed`. */
   tooltip: ReactNode;
 }
 
@@ -75,7 +76,8 @@ export function useHoverTooltip(label: string): HoverTooltip {
   const restingY = anchor.isBelow ? '0px' : '-100%';
   const closedY = anchor.isBelow ? '-4px' : 'calc(-100% + 4px)';
 
-  const tooltip = (
+  // Portaled to <body>: a transformed ancestor (e.g. the scaled weekly-timeline popup) would otherwise become `fixed`'s containing block.
+  const tooltip = createPortal(
     <span
       role="tooltip"
       aria-hidden={!isOpen}
@@ -96,7 +98,8 @@ export function useHoverTooltip(label: string): HoverTooltip {
       }}
     >
       {label}
-    </span>
+    </span>,
+    document.body,
   );
 
   return { hoverProps: { onMouseEnter: show, onMouseLeave: hide }, hide, tooltip };
