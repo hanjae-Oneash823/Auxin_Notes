@@ -16,8 +16,7 @@ import { GlobalWorkerOptions, TextLayer, getDocument, type PDFDocumentProxy, typ
 import workerUrl from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?url';
 import { ContextMenu } from '../layout/ContextMenu';
 import { PacketIconButton } from '../layout/SidebarPacket';
-import { usePanelLayoutStore } from '../layout/panelLayoutStore';
-import { hasWindowChrome } from '../layout/WindowChrome';
+import { copyPageImage, findPageImages, imageAt, type PageImage } from './pdfImages';
 import { countPageMatches, highlightSpans, locateMatch } from './pdfSearch';
 
 GlobalWorkerOptions.workerSrc = workerUrl;
@@ -27,8 +26,6 @@ const MIN_ZOOM = 0.3;
 const MAX_ZOOM = 4;
 const PAGE_GAP_PX = 12;
 const RESIZE_THROTTLE_MS = 90;
-/** Height of the macOS floating-controls strip (WindowChrome's `h-9`). */
-const CHROME_STRIP_REM = 2.25;
 const SIDE_PADDING_PX = 16;
 /** Room for the scrollbar so "fit width" never causes a horizontal scroll. */
 const SCROLLBAR_ALLOWANCE_PX = 12;
@@ -61,6 +58,8 @@ interface PdfPageProps {
   focusNonce: number;
   onContextMenu: (event: ReactMouseEvent, page: number) => void;
 }
+
+const CANCELLATION_ERRORS: ReadonlySet<string> = new Set(['RenderingCancelledException', 'AbortException']);
 
 /** One page: a fixed-size slot that only holds a rendered canvas while it is
  *  near the viewport, so a long document never keeps hundreds of canvases. */
@@ -124,8 +123,11 @@ function PdfPage({ doc, pageNumber, scale, baseSize, scroller, isInverted, query
     }
 
     render().catch((error: unknown) => {
-      // A cancelled render (zoom changed / scrolled away) is expected, not a failure.
-      if (error instanceof Error && error.name === 'RenderingCancelledException') return;
+      // A cancelled render (zoom changed / scrolled away) is expected, not a
+      // failure: the canvas task rejects with RenderingCancelledException, the
+      // text layer's stream with AbortException — and once this effect has
+      // been cleaned up, whatever it rejects with is a cancellation.
+      if (isCancelled || (error instanceof Error && CANCELLATION_ERRORS.has(error.name))) return;
       console.error(`[pdf] failed to render page ${pageNumber}`, error);
     });
     return () => {
@@ -170,8 +172,6 @@ interface PdfViewerProps {
   path: string;
   /** Extra controls at the toolbar's right edge (e.g. "+ add note"). */
   children?: ReactNode;
-  /** The viewer spans to the window's right edge (no note pane beside it). */
-  reachesRightEdge: boolean;
   /** Scrolls smoothly to `page` each time `nonce` changes (note anchors drive this). */
   scrollTarget?: { page: number; nonce: number } | null;
   /** Adds "create anchor" to the page right-click menu; omit to hide it. */
@@ -181,14 +181,7 @@ interface PdfViewerProps {
 /** Dark, app-styled PDF viewer (pdf.js draws the pages; everything around
  *  them is ours). View-only — no annotation, no text layer. Zoom is a
  *  multiplier on the fit-to-width scale, so resizing the pane keeps "fit". */
-export function PdfViewer({ path, children, reachesRightEdge, scrollTarget, onCreateAnchor }: PdfViewerProps) {
-  // On macOS the window has no header: the [auxin] label + left toggle float
-  // over the top-left while the left panel is closed, and the right toggle
-  // floats over the top-right while the right panel is closed (WindowChrome.tsx).
-  // Drop the toolbar below that strip only when one of them would sit on it.
-  const isLeftOpen = usePanelLayoutStore((state) => state.isLeftSidebarOpen);
-  const isRightOpen = usePanelLayoutStore((state) => state.isRightSidebarOpen);
-  const needsChromeStrip = hasWindowChrome() && (!isLeftOpen || (!isRightOpen && reachesRightEdge));
+export function PdfViewer({ path, children, scrollTarget, onCreateAnchor }: PdfViewerProps) {
   const [scroller, setScroller] = useState<HTMLDivElement | null>(null);
   const [doc, setDoc] = useState<PDFDocumentProxy | null>(null);
   const [baseSize, setBaseSize] = useState<PageSize | null>(null);
@@ -321,16 +314,39 @@ export function PdfViewer({ path, children, reachesRightEdge, scrollTarget, onCr
     if (scrollTarget && isLaidOut) scrollToPage(scrollTarget.page, true);
   }, [scrollTarget, isLaidOut]);
 
-  const [menu, setMenu] = useState<{ x: number; y: number; page: number; selection: string } | null>(null);
+  const [menu, setMenu] = useState<{ x: number; y: number; page: number; selection: string; image: { pdfPage: PDFPageProxy; box: PageImage } | null } | null>(null);
   function handlePageContextMenu(event: ReactMouseEvent, page: number) {
     event.preventDefault();
-    setMenu({ x: event.clientX, y: event.clientY, page, selection: window.getSelection()?.toString() ?? '' });
+    const { clientX, clientY } = event;
+    const slotRect = event.currentTarget.getBoundingClientRect();
+    setMenu({ x: clientX, y: clientY, page, selection: window.getSelection()?.toString() ?? '', image: null });
+    if (!doc) return;
+    // Finding the image under the cursor needs the page's operator list, so its menu item shows up a moment later.
+    void doc
+      .getPage(page)
+      .then(async (pdfPage) => {
+        const box = imageAt(await findPageImages(doc, pdfPage), (clientX - slotRect.left) / scale, (clientY - slotRect.top) / scale);
+        return box && { pdfPage, box };
+      })
+      .then((image) => {
+        if (image) setMenu((current) => (current && current.x === clientX && current.y === clientY ? { ...current, image } : current));
+      })
+      .catch((error: unknown) => console.error('[pdf] failed to look up the image under the cursor', error));
+  }
+  async function copyImage({ pdfPage, box }: NonNullable<NonNullable<typeof menu>['image']>) {
+    // Called straight from the click: the clipboard write must start inside the user gesture.
+    try {
+      await copyPageImage(pdfPage, box);
+    } catch (error: unknown) {
+      console.error('[pdf] failed to copy image', error);
+    }
   }
   const menuItems = menu
     ? [
         ...(menu.selection
           ? [{ label: 'copy', onSelect: () => void navigator.clipboard.writeText(menu.selection) }]
           : []),
+        ...(menu.image ? [{ label: 'copy image', onSelect: () => void copyImage(menu.image as NonNullable<typeof menu.image>) }] : []),
         ...(onCreateAnchor ? [{ label: `create anchor · p.${menu.page}`, onSelect: () => onCreateAnchor(menu.page) }] : []),
       ]
     : [];
@@ -393,11 +409,6 @@ export function PdfViewer({ path, children, reachesRightEdge, scrollTarget, onCr
       }}
       className="flex h-full min-w-0 flex-1 flex-col bg-bg outline-none"
     >
-      <div
-        data-tauri-drag-region
-        className="shrink-0 transition-[height] duration-panel ease-panel"
-        style={{ height: needsChromeStrip ? `${CHROME_STRIP_REM}rem` : 0 }}
-      />
       <div className="flex shrink-0 items-center gap-0.5 border-b border-border-subtle px-2 py-1">
         <PacketIconButton title="zoom out" onClick={() => zoomBy(1 / ZOOM_STEP)} isDisabled={!doc}>
           <MagnifyingGlassMinus size={15} />

@@ -146,7 +146,6 @@ export function PdfView({ pdfPath, hasNote, vaultRoot, onNavigate, onRenameTitle
       >
         <PdfViewer
           path={pdfPath}
-          reachesRightEdge={!isNoteShown}
           scrollTarget={scrollTarget}
           onCreateAnchor={readOnly ? undefined : createAnchor}
         >
