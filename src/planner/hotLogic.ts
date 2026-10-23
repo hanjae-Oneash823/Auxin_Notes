@@ -43,9 +43,25 @@ export function bucketNodes(nodes: readonly PlannerNode[]): HotBuckets {
   };
 }
 
-/** Open, non-routine tasks in one pool, in the same order as the hot list. */
+/** Today's open events (routine ones included), earliest first. */
+export function todaysEvents(nodes: readonly PlannerNode[]): readonly PlannerNode[] {
+  const today = todayKey();
+  return nodes
+    .filter((node) => !node.isCompleted && node.nodeType === 'event' && plannedDateOf(node) === today)
+    .sort(byStart);
+}
+
+/** Manually ordered tasks first (lowest first); ones never reordered go after them. */
+function bySortOrder(a: PlannerNode, b: PlannerNode): number {
+  if (a.sortOrder === b.sortOrder) return 0;
+  if (a.sortOrder === null) return 1;
+  if (b.sortOrder === null) return -1;
+  return a.sortOrder - b.sortOrder;
+}
+
+/** Open, non-routine tasks in one pool: Grill by its manual ranking, every pool then by deadline and importance. */
 export function poolNodes(nodes: readonly PlannerNode[], pool: Pool): readonly PlannerNode[] {
   return nodes
     .filter((node) => !node.isCompleted && node.nodeType === 'task' && !node.isRoutine && node.pool === pool)
-    .sort(byDeadlineThenImportance);
+    .sort((a, b) => (pool === 'grill' ? bySortOrder(a, b) : 0) || byDeadlineThenImportance(a, b));
 }

@@ -43,6 +43,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 export function NewNodeModal({ initial, defaults, onSubmit, onClose }: NewNodeModalProps) {
   const arcs = usePlannerStore((state) => state.arcs).filter((arc) => arc.status === 'active' || arc.id === initial?.arcId);
   const allProjects = usePlannerStore((state) => state.projects).filter((p) => p.status === 'active' || p.id === initial?.projectId);
+  const sprints = usePlannerStore((state) => state.sprints).filter((sprint) => sprint.status === 'active' || sprint.id === initial?.sprintId);
   const groups = usePlannerStore((state) => state.groups).filter((group) => !group.isUngrouped);
 
   const [kind, setKind] = useState<NodeKind>(initial ? kindOf(initial) : defaults?.kind ?? 'task');
@@ -55,6 +56,7 @@ export function NewNodeModal({ initial, defaults, onSubmit, onClose }: NewNodeMo
   const [isImportant, setIsImportant] = useState(initial ? initial.importanceLevel === 1 : defaults?.isImportant ?? false);
   const [arcId, setArcId] = useState(initial?.arcId ?? '');
   const [projectId, setProjectId] = useState(initial?.projectId ?? '');
+  const [sprintId, setSprintId] = useState(initial?.sprintId ?? '');
   const [groupIds, setGroupIds] = useState<readonly string[]>(initial?.groupIds.filter((id) => groups.some((g) => g.id === id)) ?? []);
   const [subTaskTitles, setSubTaskTitles] = useState<readonly string[]>([]);
   const [subDraft, setSubDraft] = useState('');
@@ -83,6 +85,15 @@ export function NewNodeModal({ initial, defaults, onSubmit, onClose }: NewNodeMo
     if (project?.arcId) setArcId(project.arcId);
   }
 
+  /** A sprint inside an arc or project carries it over to the node. */
+  function pickSprint(id: string) {
+    setSprintId(id);
+    const sprint = sprints.find((candidate) => candidate.id === id);
+    if (!sprint) return;
+    if (sprint.arcId) setArcId(sprint.arcId);
+    if (sprint.projectId) setProjectId(sprint.projectId);
+  }
+
   function addSubTask() {
     const text = subDraft.trim();
     if (!text) return;
@@ -104,13 +115,14 @@ export function NewNodeModal({ initial, defaults, onSubmit, onClose }: NewNodeMo
       importanceLevel: isImportant ? 1 : 0,
       arcId: arcId || null,
       projectId: projectId || null,
+      sprintId: sprintId || null,
       groupIds,
       subTaskTitles,
     });
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onMouseDown={onClose}>
+    <div data-keep-selection className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onMouseDown={onClose}>
       <div
         role="dialog"
         aria-label={initial ? 'Edit node' : 'New node'}
@@ -182,6 +194,15 @@ export function NewNodeModal({ initial, defaults, onSubmit, onClose }: NewNodeMo
             </select>
           </Field>
         </div>
+
+        {sprints.length > 0 && (
+          <Field label="Sprint">
+            <select value={sprintId} onChange={(e) => pickSprint(e.target.value)} className={FIELD_CLASS}>
+              <option value="">No sprint</option>
+              {sprints.map((sprint) => <option key={sprint.id} value={sprint.id}>{sprint.name}</option>)}
+            </select>
+          </Field>
+        )}
 
         {groups.length > 0 && (
           <div className="flex flex-col gap-1 text-fg-muted">

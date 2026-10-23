@@ -1,10 +1,12 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { Check, Play } from '@phosphor-icons/react';
 import type { PlannerNode } from '../db/queries/planner/types';
 import { nodeColor, summarize } from './nodeDerived';
 import { COLLAPSE, PANEL_TRANSITION, POP_IN } from './plannerMotion';
 import { usePlannerStore } from './plannerStore';
+import { SprintTag } from './SprintTag';
+import { ArcIcon, ProjectIcon } from './plannerIcons';
 import { PROJECT_COLOR } from './quickAddMentions';
 import { selectActiveSession, useSessionStore } from './sessionStore';
 import type { Badge } from './hotLogic';
@@ -48,9 +50,9 @@ export function NodeRow({ node, badge, actions = [], isSelected, onSelect, onTog
   /** A session works on one node at a time, so while any node is in progress nothing else can be started. */
   const isSessionBusy = active !== null && sessionNodes.some((entry) => entry.sessionId === active.id && entry.status === 'in_progress');
   const isEvent = node.nodeType === 'event';
-  const tags = [
-    ...arcs.filter((arc) => arc.id === node.arcId).map((arc) => ({ key: arc.id, label: arc.name, color: arc.colorHex })),
-    ...projects.filter((project) => project.id === node.projectId).map((project) => ({ key: project.id, label: project.name, color: PROJECT_COLOR })),
+  const tags: { key: string; label: string; color: string; icon?: ReactNode }[] = [
+    ...arcs.filter((arc) => arc.id === node.arcId).map((arc) => ({ key: arc.id, label: arc.name, color: arc.colorHex, icon: <ArcIcon arc={arc} size={11} /> })),
+    ...projects.filter((project) => project.id === node.projectId).map((project) => ({ key: project.id, label: project.name, color: PROJECT_COLOR, icon: <ProjectIcon project={project} size={11} /> })),
     ...groups.filter((group) => !group.isUngrouped && node.groupIds.includes(group.id)).map((group) => ({ key: group.id, label: group.name, color: group.colorHex })),
   ];
   const [leaving, setLeaving] = useState<RowAction | null>(null);
@@ -71,6 +73,7 @@ export function NodeRow({ node, badge, actions = [], isSelected, onSelect, onTog
 
   return (
     <motion.div
+      data-keep-selection
       layout="position"
       initial={shouldReduceMotion ? false : { opacity: 0, y: -6 }}
       animate={leaving ? { x: slide, opacity: 0, height: 0, marginTop: -LIST_GAP_PX } : { x: 0, opacity: 1, height: 'auto', marginTop: 0 }}
@@ -116,7 +119,8 @@ export function NodeRow({ node, badge, actions = [], isSelected, onSelect, onTog
             <motion.div key="tags" {...COLLAPSE} className="flex min-w-0 items-center gap-2 whitespace-nowrap" style={{ ...COLLAPSE.style, fontSize: '0.68rem', minHeight: '1em' }}>
               {tags.length === 0
                 ? <span className="text-fg-faint">no arc</span>
-                : tags.map((tag) => <span key={tag.key} className="shrink-0" style={{ color: tag.color }}>{tag.label}</span>)}
+                : tags.map((tag) => <span key={tag.key} className="flex shrink-0 items-center gap-1" style={{ color: tag.color }}>{tag.icon}{tag.label}</span>)}
+              <SprintTag sprintId={node.sprintId} />
             </motion.div>
           )}
         </AnimatePresence>

@@ -3,21 +3,24 @@ import type Database from '@tauri-apps/plugin-sql';
 import { getPlannerDb } from '../db/plannerClient';
 import { listGroups, setNodeGroups } from '../db/queries/planner/groups';
 import {
-  addSubTask, createNode, deleteNode, listEdges, listNodes, listSubTasks, setNodeCompleted, setSubTaskCompleted, updateNode,
+  addSubTask, createNode, deleteNode, listEdges, listNodes, listSubTasks, setNodeCompleted, setNodeOrder, setSubTaskCompleted, updateNode,
   type NewNodeInput, type NodePatch,
 } from '../db/queries/planner/nodes';
 import {
-  createRoutine, deleteRoutine, fillMissingRoutineNodes, listRoutines, routineCompletedCounts, updateRoutine, type RoutineFields,
+  createRoutine, deleteRoutine, fillMissingRoutineNodes, listRoutines, moveRoutineOccurrence, routineCompletedCounts,
+  setRoutineArchived, skipRoutineRange, updateRoutine, type RoutineFields,
 } from '../db/queries/planner/routines';
 import {
-  cascadeArcStatus, createArc, createProject, deleteArcWithProjects, deleteProject, listArcs, listProjects, updateArc, updateProject,
+  cascadeArcStatus, createArc, setArcOrder, createProject, deleteArcWithProjects, deleteProject, listArcs, listProjects, updateArc, updateProject,
   type ArcPatch, type NewProjectInput, type ProjectPatch,
 } from '../db/queries/planner/structure';
-import type { Arc, EntityStatus, NodeEdge, PlannerGroup, PlannerNode, Project, Routine, SubTask } from '../db/queries/planner/types';
+import { createSprint, listSprints, setSprintOrder, updateSprint, type NewSprintInput } from '../db/queries/planner/sprints';
+import type { Arc, EntityStatus, NodeEdge, PlannerGroup, PlannerNode, Project, Routine, Sprint, SubTask } from '../db/queries/planner/types';
 
 interface PlannerData {
   arcs: Arc[];
   projects: Project[];
+  sprints: Sprint[];
   groups: PlannerGroup[];
   nodes: PlannerNode[];
   edges: NodeEdge[];
@@ -41,6 +44,8 @@ interface PlannerState extends PlannerData {
   addNode: (input: NewNodeInput) => Promise<void>;
   editNode: (id: string, patch: NodePatch) => Promise<void>;
   setCompleted: (id: string, isCompleted: boolean) => Promise<void>;
+  /** Saves a manual order: `orderedIds` first to last. */
+  reorderNodes: (orderedIds: readonly string[]) => Promise<void>;
   removeNode: (id: string) => Promise<void>;
   setGroups: (nodeId: string, groupIds: readonly string[]) => Promise<void>;
 
@@ -50,9 +55,20 @@ interface PlannerState extends PlannerData {
   setArcStatus: (id: string, status: EntityStatus) => Promise<void>;
   /** Deletes the arc and its projects; their nodes are unassigned. */
   removeArc: (id: string) => Promise<void>;
+  /** Saves the Arcs list ranking: `orderedIds` first to last. */
+  reorderArcs: (orderedIds: readonly string[]) => Promise<void>;
   addProject: (input: NewProjectInput) => Promise<void>;
   editProject: (id: string, patch: ProjectPatch) => Promise<void>;
   removeProject: (id: string) => Promise<void>;
+
+  addSprint: (input: NewSprintInput) => Promise<void>;
+  renameSprint: (id: string, name: string) => Promise<void>;
+  /** Moves the sprint to another arc / project (both null for standalone). */
+  setSprintScope: (id: string, scope: { arcId: string | null; projectId: string | null }) => Promise<void>;
+  /** Ends the sprint: it leaves the dashboard list but its nodes keep their tag. */
+  endSprint: (id: string) => Promise<void>;
+  /** Saves the hand ranking: `orderedIds` first to last. */
+  reorderSprints: (orderedIds: readonly string[]) => Promise<void>;
 
   loadSubTasks: (nodeId: string) => Promise<void>;
   addSubTask: (nodeId: string, title: string) => Promise<void>;
@@ -61,16 +77,22 @@ interface PlannerState extends PlannerData {
   /** Creates the routine when `id` is null, otherwise saves edits; either way its nodes are (re)generated. */
   saveRoutine: (id: string | null, fields: RoutineFields) => Promise<void>;
   removeRoutine: (id: string) => Promise<void>;
+  /** Archives a routine (or brings it back): no upcoming occurrences while archived, history kept. */
+  archiveRoutine: (id: string, isArchived: boolean) => Promise<void>;
+  /** Skips a routine's occurrences from `from` to `to` (inclusive); one day is a plain skip, more is a pause. */
+  skipRoutine: (id: string, from: string, to: string) => Promise<void>;
+  /** Moves one occurrence to another day/time (null time = all day) without touching the rule. */
+  moveOccurrence: (id: string, fromDate: string, toDate: string, toTime: string | null) => Promise<void>;
 }
 
-const EMPTY_DATA: PlannerData = { arcs: [], projects: [], groups: [], nodes: [], edges: [], routines: [], routineDoneCounts: {} };
+const EMPTY_DATA: PlannerData = { arcs: [], projects: [], sprints: [], groups: [], nodes: [], edges: [], routines: [], routineDoneCounts: {} };
 
 /** Reads everything. */
 async function fetchAll(db: Database): Promise<PlannerData> {
-  const [arcs, projects, groups, nodes, edges, routines, routineDoneCounts] = await Promise.all([
-    listArcs(db), listProjects(db), listGroups(db), listNodes(db), listEdges(db), listRoutines(db), routineCompletedCounts(db),
+  const [arcs, projects, sprints, groups, nodes, edges, routines, routineDoneCounts] = await Promise.all([
+    listArcs(db), listProjects(db), listSprints(db), listGroups(db), listNodes(db), listEdges(db), listRoutines(db), routineCompletedCounts(db),
   ]);
-  return { arcs, projects, groups, nodes, edges, routines, routineDoneCounts };
+  return { arcs, projects, sprints, groups, nodes, edges, routines, routineDoneCounts };
 }
 
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error));
@@ -116,6 +138,7 @@ export const usePlannerStore = create<PlannerState>((set, get) => {
     addNode: (input) => mutate(async (db) => { await createNode(db, input); }),
     editNode: (id, patch) => mutate((db) => updateNode(db, id, patch)),
     setCompleted: (id, isCompleted) => mutate((db) => setNodeCompleted(db, id, isCompleted)),
+    reorderNodes: (orderedIds) => mutate((db) => setNodeOrder(db, orderedIds)),
     removeNode: (id) => mutate((db) => deleteNode(db, id)),
     setGroups: (nodeId, groupIds) => mutate((db) => setNodeGroups(db, nodeId, groupIds)),
 
@@ -123,9 +146,16 @@ export const usePlannerStore = create<PlannerState>((set, get) => {
     editArc: (id, patch) => mutate((db) => updateArc(db, id, patch)),
     setArcStatus: (id, status) => mutate((db) => cascadeArcStatus(db, id, status)),
     removeArc: (id) => mutate((db) => deleteArcWithProjects(db, id)),
+    reorderArcs: (orderedIds) => mutate((db) => setArcOrder(db, orderedIds)),
     addProject: (input) => mutate(async (db) => { await createProject(db, input); }),
     editProject: (id, patch) => mutate((db) => updateProject(db, id, patch)),
     removeProject: (id) => mutate((db) => deleteProject(db, id)),
+
+    addSprint: (input) => mutate(async (db) => { await createSprint(db, input); }),
+    renameSprint: (id, name) => mutate((db) => updateSprint(db, id, { name })),
+    setSprintScope: (id, scope) => mutate((db) => updateSprint(db, id, scope)),
+    endSprint: (id) => mutate((db) => updateSprint(db, id, { status: 'done' })),
+    reorderSprints: (orderedIds) => mutate((db) => setSprintOrder(db, orderedIds)),
 
     loadSubTasks: async (nodeId) => {
       const { vaultRoot } = get();
@@ -152,5 +182,8 @@ export const usePlannerStore = create<PlannerState>((set, get) => {
       else await createRoutine(db, fields);
     }),
     removeRoutine: (id) => mutate((db) => deleteRoutine(db, id)),
+    archiveRoutine: (id, isArchived) => mutate((db) => setRoutineArchived(db, id, isArchived)),
+    skipRoutine: (id, from, to) => mutate((db) => skipRoutineRange(db, id, from, to)),
+    moveOccurrence: (id, fromDate, toDate, toTime) => mutate((db) => moveRoutineOccurrence(db, id, fromDate, toDate, toTime)),
   };
 });

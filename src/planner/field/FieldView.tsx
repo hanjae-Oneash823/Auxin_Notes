@@ -6,6 +6,7 @@ import type { NodeDefaults } from '../NewNodeModal';
 import { useArcVisibilityStore } from '../arcVisibilityStore';
 import { isMissed, isOverdue, plannedDateOf } from '../nodeDerived';
 import { usePlannerStore } from '../plannerStore';
+import { ArcIcon } from '../plannerIcons';
 import { FieldTooltip } from './FieldTooltip';
 import { readFieldPalette, type FieldPalette } from './fieldPalette';
 import { NO_ARC_ID, TOP_BOUND, bandAt, buildColumns, columnAt, launchParticle, rowAt, syncParticles, tick, type FieldParticle } from './fieldPhysics';
@@ -287,7 +288,7 @@ export function FieldView({ onCreate, onEdit }: FieldViewProps) {
             className="flex items-center gap-1.5 rounded-tab border border-border-subtle px-2.5 py-1 text-fg-muted transition-opacity duration-panel ease-panel hover:text-fg-prominent"
             style={{ fontSize: '0.74rem', opacity: hiddenArcIds.includes(arc.id) ? 0.35 : 1 }}
           >
-            <span className="h-1.5 w-1.5 rounded-full" style={{ background: arc.colorHex }} />
+            <ArcIcon arc={arc} size={12} />
             {arc.name}
           </button>
         ))}

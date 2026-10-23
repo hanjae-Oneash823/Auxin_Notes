@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { PlannerNode } from '../db/queries/planner/types';
 import { KIND_COLORS, formatMinutes, kindOf, nodeColor, summarize } from './nodeDerived';
 import { usePlannerStore } from './plannerStore';
+import { ArcIcon, ProjectIcon } from './plannerIcons';
 
 interface NodeDetailPanelProps {
   node: PlannerNode;
@@ -21,7 +22,7 @@ function Section({ label, children }: { label: string; children: React.ReactNode
 /** Detail view for one node: hierarchy, times, groups, subtasks and
  *  dependencies (Mycelium's TaskDetailPanel), plus edit / complete / delete. */
 export function NodeDetailPanel({ node, onEdit, onClose }: NodeDetailPanelProps) {
-  const { arcs, projects, groups, nodes, edges, subTasks } = usePlannerStore();
+  const { arcs, projects, sprints, groups, nodes, edges, subTasks } = usePlannerStore();
   const { loadSubTasks, addSubTask, toggleSubTask, setCompleted, removeNode } = usePlannerStore();
   const [draft, setDraft] = useState('');
   const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
@@ -34,6 +35,7 @@ export function NodeDetailPanel({ node, onEdit, onClose }: NodeDetailPanelProps)
   const kind = kindOf(node);
   const arc = arcs.find((candidate) => candidate.id === node.arcId);
   const project = projects.find((candidate) => candidate.id === node.projectId);
+  const sprint = sprints.find((candidate) => candidate.id === node.sprintId);
   const nodeGroups = groups.filter((group) => !group.isUngrouped && node.groupIds.includes(group.id));
   const blockers = edges
     .filter((edge) => edge.targetId === node.id)
@@ -60,8 +62,9 @@ export function NodeDetailPanel({ node, onEdit, onClose }: NodeDetailPanelProps)
         <span className="capitalize" style={{ color: KIND_COLORS[kind] }}>{kind}</span>
         {node.isRoutine && <span className="text-fg-faint">routine</span>}
         {node.importanceLevel === 1 && <span className="text-accent-warning">★ important</span>}
-        {arc && <span style={{ color: arc.colorHex }}>{arc.name}</span>}
-        {project && <span className="text-fg-muted">/ {project.name}</span>}
+        {arc && <span className="flex items-center gap-1" style={{ color: arc.colorHex }}><ArcIcon arc={arc} size={12} />{arc.name}</span>}
+        {project && <span className="flex items-center gap-1 text-fg-muted"><ProjectIcon project={project} size={12} />{project.name}</span>}
+        {sprint && <span className="text-fg-muted">· sprint {sprint.name}{sprint.status === 'done' ? ' (ended)' : ''}</span>}
       </div>
 
       <Section label="Schedule">

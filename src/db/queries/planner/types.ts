@@ -13,6 +13,8 @@ export interface Arc {
   id: string;
   name: string;
   colorHex: string;
+  /** A Phosphor icon name (see planner/plannerIcons.tsx); '' means the default. */
+  icon: string;
   description: string;
   status: EntityStatus;
   createdAt: string;
@@ -22,10 +24,26 @@ export interface Project {
   id: string;
   arcId: string | null;
   name: string;
+  /** A Phosphor icon name (see planner/plannerIcons.tsx); '' means the default. */
+  icon: string;
   description: string;
   status: EntityStatus;
   startDate: string | null;
   endDate: string | null;
+  createdAt: string;
+}
+
+export type SprintStatus = 'active' | 'done';
+
+/** A short-term theme smaller than a project; it can sit inside an arc or project, or stand alone. */
+export interface Sprint {
+  id: string;
+  name: string;
+  arcId: string | null;
+  projectId: string | null;
+  status: SprintStatus;
+  /** Hand-ranked position on the dashboard; lower first. */
+  sortOrder: number | null;
   createdAt: string;
 }
 
@@ -42,9 +60,12 @@ export interface PlannerNode {
   id: string;
   projectId: string | null;
   arcId: string | null;
+  sprintId: string | null;
   title: string;
   nodeType: NodeType;
   pool: Pool;
+  /** Manual position within its pool (Grill is a ranking); null until the task has been reordered. Lower comes first. */
+  sortOrder: number | null;
   /** Local wall-clock: YYYY-MM-DD (date only) or YYYY-MM-DDTHH:MM:SS. */
   plannedStartAt: string | null;
   /** YYYY-MM-DD */
@@ -112,6 +133,8 @@ export interface Routine {
   arcId: string | null;
   projectId: string | null;
   importanceLevel: Importance;
+  /** Archived routines keep their history but generate nothing new. */
+  isArchived: boolean;
   createdAt: string;
   updatedAt: string;
   rules: RoutineRule[];

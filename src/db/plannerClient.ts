@@ -4,6 +4,11 @@ import plannerInitSql from './migrations/planner/0001_init.sql?raw';
 import plannerPoolsSql from './migrations/planner/0002_pools.sql?raw';
 import plannerFreezerSql from './migrations/planner/0003_freezer.sql?raw';
 import plannerGrillSql from './migrations/planner/0004_grill.sql?raw';
+import plannerGrillOrderSql from './migrations/planner/0005_grill_order.sql?raw';
+import plannerSprintsSql from './migrations/planner/0006_sprints.sql?raw';
+import plannerRoutineArchiveSql from './migrations/planner/0007_routine_archive.sql?raw';
+import plannerIconsSql from './migrations/planner/0008_icons.sql?raw';
+import plannerArcOrderSql from './migrations/planner/0009_arc_order.sql?raw';
 import { stripSqlLineComments } from './client';
 
 let dbInstance: Database | null = null;
@@ -40,7 +45,7 @@ export async function getPlannerDb(vaultRoot: string): Promise<Database> {
 /** Migrations run once each, in order; PRAGMA user_version records how many have been applied (0001 is idempotent, so existing databases at 0 re-run it safely). */
 async function runMigrations(db: Database): Promise<void> {
   const [{ user_version: applied }] = await db.select<{ user_version: number }[]>('PRAGMA user_version');
-  for (const [index, migrationSql] of [plannerInitSql, plannerPoolsSql, plannerFreezerSql, plannerGrillSql].entries()) {
+  for (const [index, migrationSql] of [plannerInitSql, plannerPoolsSql, plannerFreezerSql, plannerGrillSql, plannerGrillOrderSql, plannerSprintsSql, plannerRoutineArchiveSql, plannerIconsSql, plannerArcOrderSql].entries()) {
     if (index < applied) continue;
     const statements = stripSqlLineComments(migrationSql)
       .split(';')

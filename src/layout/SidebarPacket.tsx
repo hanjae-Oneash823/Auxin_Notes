@@ -9,19 +9,21 @@ interface SidebarPacketProps {
   /** Let the packet grow to fill the sidebar's remaining height, giving its
    *  body a scroll container (used by the file tree). */
   isFill?: boolean;
+  /** Drop the packet's background wash (it is on by default). */
+  isTransparent?: boolean;
   children: ReactNode;
 }
 
 /** A section inside a sidebar — the unit the left/right panels are
  *  organised into. Square and the same tone as the panel (see the
  *  `--color-packet-bg`/`--radius-panel` tokens); only tab cards are lifted. */
-export function SidebarPacket({ title, actions, isFill = false, children }: SidebarPacketProps) {
+export function SidebarPacket({ title, actions, isFill = false, isTransparent = false, children }: SidebarPacketProps) {
   return (
     <section
-      className={`flex flex-col rounded-panel bg-bg-packet ${isFill ? 'min-h-0 flex-1' : 'shrink-0'}`}
+      className={`flex flex-col rounded-panel ${isTransparent ? '' : 'bg-bg-packet'} ${isFill ? 'min-h-0 flex-1' : 'shrink-0'}`}
     >
       {(title || actions) && (
-        <header className="flex shrink-0 items-center justify-between gap-2 px-3 pb-1 pt-2.5">
+        <header className="flex shrink-0 items-center justify-between gap-2 px-3 pb-0.5 pt-1.5">
           <span className="truncate text-fg-muted" style={{ fontSize: '0.78rem', fontWeight: 600 }}>
             {title}
           </span>

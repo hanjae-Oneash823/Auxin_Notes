@@ -9,7 +9,7 @@ interface ConfirmModalProps {
 
 export function ConfirmModal({ title, body, confirmLabel = 'Confirm', isDanger = false, onConfirm, onCancel }: ConfirmModalProps) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onMouseDown={onCancel}>
+    <div data-keep-selection className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onMouseDown={onCancel}>
       <div
         role="alertdialog"
         aria-label={title}

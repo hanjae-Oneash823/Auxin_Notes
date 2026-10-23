@@ -12,6 +12,7 @@ interface RoutineRow {
   arc_id: string | null;
   project_id: string | null;
   importance_level: Importance;
+  is_archived: number;
   created_at: string;
   updated_at: string;
 }
@@ -41,7 +42,7 @@ const toRule = (row: RuleRow): RoutineRule => ({
 
 const toRoutine = (row: RoutineRow, rules: RoutineRule[], groupIds: string[]): Routine => ({
   id: row.id, title: row.title, nodeType: row.node_type, arcId: row.arc_id, projectId: row.project_id,
-  importanceLevel: row.importance_level, createdAt: row.created_at, updatedAt: row.updated_at, rules, groupIds,
+  importanceLevel: row.importance_level, isArchived: row.is_archived === 1, createdAt: row.created_at, updatedAt: row.updated_at, rules, groupIds,
 });
 
 /** Mycelium generates routine nodes this far ahead of today. */
@@ -164,6 +165,12 @@ export async function deleteRoutine(db: Database, id: string): Promise<void> {
   await db.execute('DELETE FROM routines WHERE id = ?', [id]);
 }
 
+/** Archiving drops the routine's upcoming incomplete occurrences (past ones stay as history); unarchiving brings them back. */
+export async function setRoutineArchived(db: Database, id: string, isArchived: boolean): Promise<void> {
+  await patchRow(db, 'routines', id, { is_archived: isArchived ? 1 : 0, updated_at: nowIso() });
+  await regenerateRoutineNodes(db, id);
+}
+
 // ── Node generation ───────────────────────────────────────────────────────────
 
 const plannedStartFor = (date: string, rule: Pick<RoutineRule, 'startTime'>): string =>
@@ -176,7 +183,7 @@ const plannedStartFor = (date: string, rule: Pick<RoutineRule, 'startTime'>): st
  */
 export async function generateRoutineNodes(db: Database, routineId: string, fromDate: string, toDate: string): Promise<number> {
   const routine = await getRoutine(db, routineId);
-  if (!routine || routine.rules.length === 0) return 0;
+  if (!routine || routine.isArchived || routine.rules.length === 0) return 0;
 
   const existing = await db.select<{ planned_start_at: string | null }[]>('SELECT planned_start_at FROM nodes WHERE routine_id = ?', [routineId]);
   const taken = new Set(existing.flatMap((row) => (row.planned_start_at ? [row.planned_start_at.slice(0, 10)] : [])));
@@ -244,4 +251,64 @@ export async function cancelException(db: Database, routineId: string, date: str
     plannedStartAt: plannedStartFor(date, rule), estimatedDurationMinutes: rule.durationMinutes,
     importanceLevel: routine.importanceLevel, isRoutine: true, routineId, groupIds: routine.groupIds,
   });
+}
+
+// ── Skipping and moving single occurrences ────────────────────────────────────
+
+/** The rule an occurrence on `date` comes from: a manual rule for that date, else the recurring rule that generates it. */
+export function ruleForDate(routine: Routine, date: string): RoutineRule | undefined {
+  return routine.rules.find((rule) => rule.freq === 'manual' && rule.startDate === date)
+    ?? routine.rules.find((rule) => rule.freq !== 'manual' && ruleOccurrenceDates({ ...rule, exceptions: [] }).includes(date));
+}
+
+/**
+ * Skips every occurrence of a routine in [from, to] (inclusive): recurring rules get the dates as exceptions
+ * (so a startup top-up never brings them back), manual dates are removed, and their incomplete nodes are deleted.
+ * Completed occurrences are history and stay.
+ */
+export async function skipRoutineRange(db: Database, routineId: string, from: string, to: string): Promise<void> {
+  const routine = await getRoutine(db, routineId);
+  if (!routine) return;
+  for (const rule of routine.rules) {
+    if (rule.freq === 'manual') {
+      if (rule.startDate >= from && rule.startDate <= to) await db.execute('DELETE FROM routine_rules WHERE id = ?', [rule.id]);
+      continue;
+    }
+    const skipped = ruleOccurrenceDates({ ...rule, exceptions: [] }).filter((date) => date >= from && date <= to);
+    if (skipped.length === 0) continue;
+    await db.execute('UPDATE routine_rules SET exceptions = ? WHERE id = ?', [
+      jsonOrNull([...new Set([...rule.exceptions, ...skipped])].sort()), rule.id,
+    ]);
+  }
+  await db.execute(
+    'DELETE FROM nodes WHERE routine_id = ? AND is_completed = 0 AND substr(planned_start_at, 1, 10) BETWEEN ? AND ?',
+    [routineId, from, to],
+  );
+}
+
+/**
+ * Moves one occurrence to another day and/or time without touching the rule: the original date is skipped and a
+ * one-off (manual) date takes its place, so the move survives edits and regeneration.
+ * A routine has at most one occurrence per day, so moving onto a day that already has one is refused.
+ */
+export async function moveRoutineOccurrence(db: Database, routineId: string, fromDate: string, toDate: string, toTime: string | null): Promise<void> {
+  const routine = await getRoutine(db, routineId);
+  if (!routine) return;
+  const [node] = await db.select<{ is_completed: number; estimated_duration_minutes: number | null }[]>(
+    'SELECT is_completed, estimated_duration_minutes FROM nodes WHERE routine_id = ? AND substr(planned_start_at, 1, 10) = ?',
+    [routineId, fromDate],
+  );
+  if (node?.is_completed === 1) throw new Error('A completed occurrence can\'t be moved.');
+  if (toDate !== fromDate) {
+    const clash = await db.select<{ id: string }[]>('SELECT id FROM nodes WHERE routine_id = ? AND substr(planned_start_at, 1, 10) = ?', [routineId, toDate]);
+    if (clash.length > 0) throw new Error(`"${routine.title}" already has an occurrence on ${toDate}.`);
+  }
+  const durationMinutes = node?.estimated_duration_minutes ?? ruleForDate(routine, fromDate)?.durationMinutes ?? null;
+
+  await skipRoutineRange(db, routineId, fromDate, fromDate);
+  await insertRule(db, routineId, {
+    freq: 'manual', repeatInterval: 1, days: [], startDate: toDate, endMode: 'count', endCount: 1, endDate: null,
+    startTime: toTime, durationMinutes, exceptions: [],
+  }, routine.rules.length);
+  await generateRoutineNodes(db, routineId, localDateKey(), horizonDate());
 }

@@ -1,22 +1,20 @@
-import { CalendarCheck, Heartbeat } from '@phosphor-icons/react';
+import { CalendarCheck } from '@phosphor-icons/react';
 import { SessionPanel } from '../planner/SessionPanel';
 import { SidebarPacket } from './SidebarPacket';
 
-const HEALTH_PINK = '#ec4899';
+/** Cmd+P toggles the Planner (App.tsx); shown on the button so it can be found. */
+const PLANNER_SHORTCUT = '⌘P';
 const ROW_CLASS = 'flex w-full items-center gap-2.5 rounded-tab px-2 py-1.5 text-left transition-colors duration-panel ease-panel hover:bg-border-subtle hover:text-fg-prominent';
 
 interface PlannerAreaProps {
   isActive: boolean;
   onToggle: () => void;
-  isHealthActive: boolean;
-  onToggleHealth: () => void;
 }
 
 /** The Planner's own area in the left sidebar, boxed like the workspace
  *  switcher (a packet holding a lifted, rounded `bg-packet-card` box). The
- *  top row toggles the Planner view, the next one Health & habits; below
- *  them sit the session controls. */
-export function PlannerArea({ isActive, onToggle, isHealthActive, onToggleHealth }: PlannerAreaProps) {
+ *  top row toggles the Planner view; below it sit the session controls. */
+export function PlannerArea({ isActive, onToggle }: PlannerAreaProps) {
   return (
     <SidebarPacket>
       <div
@@ -26,22 +24,13 @@ export function PlannerArea({ isActive, onToggle, isHealthActive, onToggleHealth
         <button
           type="button"
           onClick={onToggle}
-          title="schedule, sessions and routines"
+          title="schedule, sessions and routines (⌘P)"
           className={`${ROW_CLASS} ${isActive ? 'bg-border-subtle text-fg-prominent' : 'text-fg-muted'}`}
           style={{ fontSize: '0.85rem' }}
         >
           <CalendarCheck size={16} style={{ color: 'var(--accent-info)' }} />
           <span className="truncate font-semibold">Planner</span>
-        </button>
-        <button
-          type="button"
-          onClick={onToggleHealth}
-          title="habits and sleep"
-          className={`${ROW_CLASS} ${isHealthActive ? 'bg-border-subtle text-fg-prominent' : 'text-fg-muted'}`}
-          style={{ fontSize: '0.85rem' }}
-        >
-          <Heartbeat size={16} style={{ color: HEALTH_PINK }} />
-          <span className="truncate">Health &amp; habits</span>
+          <span className="ml-auto shrink-0 text-fg-muted" style={{ fontSize: '0.8rem' }}>{PLANNER_SHORTCUT}</span>
         </button>
         <SessionPanel />
       </div>

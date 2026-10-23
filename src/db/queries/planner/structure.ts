@@ -7,6 +7,7 @@ interface ArcRow {
   id: string;
   name: string;
   color_hex: string;
+  icon: string;
   description: string;
   status: EntityStatus;
   created_at: string;
@@ -16,6 +17,7 @@ interface ProjectRow {
   id: string;
   arc_id: string | null;
   name: string;
+  icon: string;
   description: string;
   status: EntityStatus;
   start_date: string | null;
@@ -24,11 +26,11 @@ interface ProjectRow {
 }
 
 const toArc = (row: ArcRow): Arc => ({
-  id: row.id, name: row.name, colorHex: row.color_hex, description: row.description, status: row.status, createdAt: row.created_at,
+  id: row.id, name: row.name, colorHex: row.color_hex, icon: row.icon, description: row.description, status: row.status, createdAt: row.created_at,
 });
 
 const toProject = (row: ProjectRow): Project => ({
-  id: row.id, arcId: row.arc_id, name: row.name, description: row.description, status: row.status,
+  id: row.id, arcId: row.arc_id, name: row.name, icon: row.icon, description: row.description, status: row.status,
   startDate: row.start_date, endDate: row.end_date, createdAt: row.created_at,
 });
 
@@ -37,7 +39,7 @@ const DEFAULT_ARC_COLOR = '#00c4a7';
 // ── Arcs ──────────────────────────────────────────────────────────────────────
 
 export async function listArcs(db: Database): Promise<Arc[]> {
-  const rows = await db.select<ArcRow[]>('SELECT * FROM arcs ORDER BY created_at ASC');
+  const rows = await db.select<ArcRow[]>('SELECT * FROM arcs ORDER BY sort_order IS NULL, sort_order ASC, created_at ASC');
   return rows.map(toArc);
 }
 
@@ -49,19 +51,26 @@ export interface NewArcInput {
 
 export async function createArc(db: Database, input: NewArcInput): Promise<Arc> {
   const arc: Arc = {
-    id: ulid(), name: input.name, colorHex: input.colorHex ?? DEFAULT_ARC_COLOR,
+    id: ulid(), name: input.name, colorHex: input.colorHex ?? DEFAULT_ARC_COLOR, icon: '',
     description: input.description ?? '', status: 'active', createdAt: nowIso(),
   };
-  await db.execute('INSERT INTO arcs (id, name, color_hex, description, status, created_at) VALUES (?, ?, ?, ?, ?, ?)', [
-    arc.id, arc.name, arc.colorHex, arc.description, arc.status, arc.createdAt,
+  await db.execute('INSERT INTO arcs (id, name, color_hex, icon, description, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)', [
+    arc.id, arc.name, arc.colorHex, arc.icon, arc.description, arc.status, arc.createdAt,
   ]);
   return arc;
 }
 
-export type ArcPatch = Partial<Pick<Arc, 'name' | 'colorHex' | 'description' | 'status'>>;
+/** Stores the Arcs list ranking: the first id gets 1, the next 2, and so on. */
+export async function setArcOrder(db: Database, orderedIds: readonly string[]): Promise<void> {
+  for (const [index, id] of orderedIds.entries()) {
+    await db.execute('UPDATE arcs SET sort_order = ? WHERE id = ?', [index + 1, id]);
+  }
+}
+
+export type ArcPatch = Partial<Pick<Arc, 'name' | 'colorHex' | 'icon' | 'description' | 'status'>>;
 
 export async function updateArc(db: Database, id: string, patch: ArcPatch): Promise<void> {
-  await patchRow(db, 'arcs', id, { name: patch.name, color_hex: patch.colorHex, description: patch.description, status: patch.status });
+  await patchRow(db, 'arcs', id, { name: patch.name, color_hex: patch.colorHex, icon: patch.icon, description: patch.description, status: patch.status });
 }
 
 /** Projects, nodes and routines under the arc keep existing with arc_id set to NULL. */
@@ -98,21 +107,21 @@ export interface NewProjectInput {
 
 export async function createProject(db: Database, input: NewProjectInput): Promise<Project> {
   const project: Project = {
-    id: ulid(), arcId: input.arcId ?? null, name: input.name, description: input.description ?? '', status: 'active',
+    id: ulid(), arcId: input.arcId ?? null, name: input.name, icon: '', description: input.description ?? '', status: 'active',
     startDate: input.startDate ?? null, endDate: input.endDate ?? null, createdAt: nowIso(),
   };
   await db.execute(
-    'INSERT INTO projects (id, arc_id, name, description, status, start_date, end_date, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-    [project.id, project.arcId, project.name, project.description, project.status, project.startDate, project.endDate, project.createdAt],
+    'INSERT INTO projects (id, arc_id, name, icon, description, status, start_date, end_date, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    [project.id, project.arcId, project.name, project.icon, project.description, project.status, project.startDate, project.endDate, project.createdAt],
   );
   return project;
 }
 
-export type ProjectPatch = Partial<Pick<Project, 'name' | 'arcId' | 'description' | 'status' | 'startDate' | 'endDate'>>;
+export type ProjectPatch = Partial<Pick<Project, 'name' | 'arcId' | 'icon' | 'description' | 'status' | 'startDate' | 'endDate'>>;
 
 export async function updateProject(db: Database, id: string, patch: ProjectPatch): Promise<void> {
   await patchRow(db, 'projects', id, {
-    name: patch.name, arc_id: patch.arcId, description: patch.description, status: patch.status,
+    name: patch.name, arc_id: patch.arcId, icon: patch.icon, description: patch.description, status: patch.status,
     start_date: patch.startDate, end_date: patch.endDate,
   });
 }

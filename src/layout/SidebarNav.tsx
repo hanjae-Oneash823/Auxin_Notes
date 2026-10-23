@@ -1,10 +1,15 @@
-import type { ReactNode } from 'react';
-import { CirclesThree, FilePdf, Note, Stack } from '@phosphor-icons/react';
+import { CirclesThree, FilePdf, Heartbeat, House, Note, Stack } from '@phosphor-icons/react';
 import { useStickyStore } from '../sticky/stickyStore';
-import { CountBadge } from './CountBadge';
+import { NavRow } from './NavRow';
 import { SidebarPacket } from './SidebarPacket';
 
+const HEALTH_PINK = '#ec4899';
+
 interface SidebarNavProps {
+  isHomeActive: boolean;
+  onSelectHome: () => void;
+  isHealthActive: boolean;
+  onToggleHealth: () => void;
   isStickyMode: boolean;
   onToggleStickyMode: () => void;
   isBubbleMode: boolean;
@@ -17,40 +22,16 @@ interface SidebarNavProps {
   canvasCount: number;
 }
 
-interface NavRowProps {
-  label: string;
-  title?: string;
-  isActive: boolean;
-  onClick: () => void;
-  /** A count shown in a small square at the row's right end. */
-  count?: number;
-  children: ReactNode;
-}
-
-function NavRow({ label, title, isActive, onClick, count, children }: NavRowProps) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      title={title ?? label}
-      className={`flex w-full items-center gap-2.5 rounded-row px-2 py-1.5 text-left transition-colors duration-panel ease-panel hover:bg-border-subtle hover:text-fg-prominent ${
-        isActive ? 'bg-border-subtle text-fg-prominent' : 'text-fg-muted'
-      }`}
-      style={{ fontSize: '0.85rem' }}
-    >
-      {children}
-      <span className="truncate">{label}</span>
-      {count !== undefined && <CountBadge count={count} className="ml-auto" />}
-    </button>
-  );
-}
-
 /** Top packet of the left sidebar. Its rows toggle a dock below it, a
  *  full-content-area mode (sticky board). Search and tags now live in the right panel's layers. The
  *  2D/3D graph views are hidden from here for now (still reachable as
  *  content-area modes, just not from this nav — see isGraphMode/
  *  isGraph2DMode in App.tsx), not removed outright. */
 export function SidebarNav({
+  isHomeActive,
+  onSelectHome,
+  isHealthActive,
+  onToggleHealth,
   isStickyMode,
   onToggleStickyMode,
   isBubbleMode,
@@ -66,23 +47,30 @@ export function SidebarNav({
 
   return (
     <SidebarPacket>
-      <NavRow
-        label="Bubble navigator"
-        title="browse folders as bubbles in the editing area"
-        isActive={isBubbleMode}
-        onClick={onToggleBubbleMode}
-      >
-        <CirclesThree size={16} className="text-accent-tag" />
-      </NavRow>
-      <NavRow label="Imported PDFs" isActive={isPdfsOpen} onClick={onTogglePdfs} count={pdfCount}>
-        <FilePdf size={16} className="text-accent-link-broken" />
-      </NavRow>
-      <NavRow label="Canvases" isActive={isCanvasesOpen} onClick={onToggleCanvases} count={canvasCount}>
-        <Stack size={16} className="text-accent-link" />
-      </NavRow>
-      <NavRow label="Sticky board" isActive={isStickyMode} onClick={onToggleStickyMode} count={stickyCount}>
-        <Note size={16} />
-      </NavRow>
+      <div className="grid grid-cols-3 gap-1.5">
+        <NavRow label="Home" isActive={isHomeActive} onClick={onSelectHome}>
+          <House size={20} className="text-yellow-400" />
+        </NavRow>
+        <NavRow
+          label="Bubble Navigator"
+          isActive={isBubbleMode}
+          onClick={onToggleBubbleMode}
+        >
+          <CirclesThree size={20} className="text-accent-tag" />
+        </NavRow>
+        <NavRow label="Imported PDFs" isActive={isPdfsOpen} onClick={onTogglePdfs} count={pdfCount}>
+          <FilePdf size={20} className="text-accent-link-broken" />
+        </NavRow>
+        <NavRow label="Canvases" isActive={isCanvasesOpen} onClick={onToggleCanvases} count={canvasCount}>
+          <Stack size={20} className="text-accent-link" />
+        </NavRow>
+        <NavRow label="Sticky board" isActive={isStickyMode} onClick={onToggleStickyMode} count={stickyCount}>
+          <Note size={20} />
+        </NavRow>
+        <NavRow label="Health & habits (⌘H)" isActive={isHealthActive} onClick={onToggleHealth}>
+          <Heartbeat size={20} style={{ color: HEALTH_PINK }} />
+        </NavRow>
+      </div>
     </SidebarPacket>
   );
 }

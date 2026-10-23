@@ -292,8 +292,10 @@ async function startedAt(db: Database, sessionId: string, nodeId: string): Promi
 export async function startNode(db: Database, sessionId: string, nodeId: string): Promise<void> {
   const busy = await inProgressTitle(db, sessionId, nodeId);
   if (busy !== null) throw busyError(busy);
+  // A node skipped earlier (markNodeIncomplete) still carries that run's finish time and minutes; a new run
+  // starts clean, or the old finish would predate the new start and every reader would see a negative span.
   await db.execute(
-    "UPDATE session_nodes SET status = 'in_progress', time_started = ? WHERE session_id = ? AND node_id = ?",
+    "UPDATE session_nodes SET status = 'in_progress', time_started = ?, time_finished = NULL, total_minutes = NULL WHERE session_id = ? AND node_id = ?",
     [nowIso(), sessionId, nodeId],
   );
 }

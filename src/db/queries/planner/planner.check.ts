@@ -5,11 +5,12 @@ import { DatabaseSync } from 'node:sqlite';
 import { readFileSync } from 'node:fs';
 import type Database from '@tauri-apps/plugin-sql';
 import { createArc, createProject, deleteArc, listProjects } from './structure.ts';
+import { createSprint, listSprints, setSprintOrder, updateSprint } from './sprints.ts';
 import { createGroup, deleteGroup, listGroups, setNodeGroups } from './groups.ts';
-import { addEdge, addSubTask, createNode, deleteNode, getNode, listEdges, listNodes, listSubTasks, setNodeCompleted, setSubTaskCompleted, updateNode } from './nodes.ts';
+import { addEdge, addSubTask, createNode, deleteNode, getNode, listEdges, listNodes, listSubTasks, setNodeCompleted, setNodeOrder, setSubTaskCompleted, updateNode } from './nodes.ts';
 import { generateOccurrenceDates, ruleOccurrenceDates } from './occurrences.ts';
 import {
-  cancelException, createRoutine, deleteRoutine, fillMissingRoutineNodes, generateRoutineNodes, getRoutine, regenerateRoutineNodes,
+  cancelException, createRoutine, setRoutineArchived, deleteRoutine, moveRoutineOccurrence, skipRoutineRange, fillMissingRoutineNodes, generateRoutineNodes, getRoutine, regenerateRoutineNodes,
   routineCompletedCounts, updateRoutine, type RoutineFields,
 } from './routines.ts';
 import {
@@ -41,6 +42,9 @@ function openDb(): Database {
   sqlite.exec(readFileSync(new URL('../../migrations/planner/0002_pools.sql', import.meta.url), 'utf8'));
   sqlite.exec(readFileSync(new URL('../../migrations/planner/0003_freezer.sql', import.meta.url), 'utf8'));
   sqlite.exec(readFileSync(new URL('../../migrations/planner/0004_grill.sql', import.meta.url), 'utf8'));
+  sqlite.exec(readFileSync(new URL('../../migrations/planner/0005_grill_order.sql', import.meta.url), 'utf8'));
+  sqlite.exec(readFileSync(new URL('../../migrations/planner/0006_sprints.sql', import.meta.url), 'utf8'));
+  sqlite.exec(readFileSync(new URL('../../migrations/planner/0007_routine_archive.sql', import.meta.url), 'utf8'));
   sqlite.exec("INSERT INTO planner_groups (id, name, color_hex, sort_order, is_ungrouped, created_at) VALUES ('g-ungrouped', 'ungrouped', '#888', 0, 1, '2026-01-01T00:00:00.000Z')");
   return {
     select: async (sql: string, params: unknown[] = []) => sqlite.prepare(sql).all(...(params as never[])).map((row) => ({ ...row })),
@@ -91,6 +95,70 @@ equal(generateOccurrenceDates({ freq: 'daily', interval: 1 }, '2026-01-01').leng
   await deleteArc(db, arc.id);
   equal((await listProjects(db))[0].arcId, null, 'deleting an arc detaches its projects');
   equal((await getNode(db, node.id))?.arcId, null, 'deleting an arc detaches its nodes');
+}
+
+// ── skipping and moving single occurrences ────────────────────────────────────
+
+{
+  const db = openDb();
+  const start = shiftDays(2);
+  const fields: RoutineFields = {
+    title: 'Gym', nodeType: 'event', arcId: null, projectId: null, importanceLevel: 0, groupIds: [],
+    rules: [rule({ freq: 'daily', startDate: start, endCount: 6, startTime: '07:00', durationMinutes: 60 })],
+  };
+  const routine = await createRoutine(db, fields);
+  const day = (n: number) => shiftDays(2 + n);
+  const dates = async () => (await listNodes(db, { routineId: routine.id })).map((node) => node.plannedStartAt);
+
+  await skipRoutineRange(db, routine.id, day(1), day(2));
+  equal((await dates()).length, 4, 'skipping a range deletes those nodes');
+  equal((await getRoutine(db, routine.id))?.rules[0].exceptions, [day(1), day(2)], 'and records them as exceptions');
+  await fillMissingRoutineNodes(db);
+  equal((await dates()).length, 4, 'a startup top-up does not bring skipped days back');
+  await cancelException(db, routine.id, day(1));
+  equal((await dates()).length, 5, 'restoring a skipped day brings its node back');
+
+  await moveRoutineOccurrence(db, routine.id, day(0), day(0), '18:30');
+  const [first] = await listNodes(db, { routineId: routine.id });
+  equal([first.plannedStartAt, first.estimatedDurationMinutes], [`${day(0)}T18:30:00`, 60], 'moving within a day changes the time and keeps the duration');
+  await fillMissingRoutineNodes(db);
+  equal((await dates()).length, 5, 'a moved occurrence is not duplicated by a top-up');
+
+  await throws(() => moveRoutineOccurrence(db, routine.id, day(0), day(3), '07:00'), 'moving onto a day that already has an occurrence is refused');
+  await moveRoutineOccurrence(db, routine.id, day(0), day(2), '09:00');
+  equal((await dates()).includes(`${day(2)}T09:00:00`), true, 'moving to a skipped day works');
+  equal((await dates()).some((at) => at?.startsWith(day(0))), false, 'and leaves nothing behind on the old day');
+  await moveRoutineOccurrence(db, routine.id, day(2), day(0), '07:00');
+  equal((await dates()).filter((at) => at?.startsWith(day(2))).length, 0, 'moving a moved occurrence replaces its one-off date');
+  equal((await dates()).filter((at) => at?.startsWith(day(0))).length, 1, 'and puts it on the new day');
+}
+
+// ── sprints ───────────────────────────────────────────────────────────────────
+
+{
+  const db = openDb();
+  const arc = await createArc(db, { name: 'Thesis' });
+  const project = await createProject(db, { name: 'Paper', arcId: arc.id });
+  const inProject = await createSprint(db, { name: 'Figure panels', arcId: arc.id, projectId: project.id });
+  const standalone = await createSprint(db, { name: 'Midterm prep' });
+  equal([inProject.sortOrder, standalone.sortOrder], [1, 2], 'new sprints rank after existing ones');
+
+  const inherited = await createNode(db, { title: 'Panel A', sprintId: inProject.id });
+  equal([inherited.arcId, inherited.projectId, inherited.sprintId], [arc.id, project.id, inProject.id], 'a node inherits its sprint\'s arc and project');
+  const own = await createNode(db, { title: 'Panel B', sprintId: inProject.id, arcId: null, projectId: null });
+  equal([own.arcId, own.projectId], [arc.id, project.id], 'omitted arc/project still inherit');
+  const loose = await createNode(db, { title: 'Review notes', sprintId: standalone.id });
+  equal([loose.arcId, loose.projectId], [null, null], 'a standalone sprint adds no arc or project');
+
+  await setSprintOrder(db, [standalone.id, inProject.id]);
+  equal((await listSprints(db)).map((sprint) => sprint.name), ['Midterm prep', 'Figure panels'], 'hand ranking orders the list');
+
+  await updateSprint(db, standalone.id, { status: 'done' });
+  equal((await listSprints(db)).find((sprint) => sprint.id === standalone.id)?.status, 'done', 'ending a sprint marks it done');
+  equal((await getNode(db, loose.id))?.sprintId, standalone.id, 'ending a sprint keeps its nodes tagged');
+
+  await deleteArc(db, arc.id);
+  equal((await listSprints(db)).find((sprint) => sprint.id === inProject.id)?.arcId, null, 'deleting an arc detaches its sprints');
 }
 
 // ── groups: the ungrouped invariant ───────────────────────────────────────────
@@ -171,6 +239,12 @@ equal(generateOccurrenceDates({ freq: 'daily', interval: 1 }, '2026-01-01').leng
   equal((await getNode(db, task.id))?.pool, 'freezer', 'the freezer pool is accepted');
   await updateNode(db, task.id, { pool: 'grill' });
   equal((await getNode(db, task.id))?.pool, 'grill', 'the grill pool is accepted');
+  const first = await createNode(db, { title: 'First', pool: 'grill' });
+  const second = await createNode(db, { title: 'Second', pool: 'grill' });
+  equal([first.sortOrder, second.sortOrder], [null, null], 'a new node has no manual order');
+  await setNodeOrder(db, [second.id, first.id]);
+  equal([(await getNode(db, second.id))?.sortOrder, (await getNode(db, first.id))?.sortOrder], [1, 2], 'setNodeOrder numbers the ids in the given order');
+  equal((await createNode(db, { title: 'Ranked', pool: 'grill', sortOrder: 7.5 })).sortOrder, 7.5, 'a sort order can be set on create');
   await throws(() => updateNode(db, task.id, { pool: 'lukewarm' as never }), 'the CHECK rejects an unknown pool');
 }
 
@@ -199,6 +273,12 @@ equal(generateOccurrenceDates({ freq: 'daily', interval: 1 }, '2026-01-01').leng
   equal(rebuilt.length, 3, 'editing rules rebuilds future nodes (completed one kept, 2 regenerated)');
   equal(rebuilt.filter((n) => n.isCompleted).length, 1, 'regeneration keeps completed history');
   equal((await getRoutine(db, routine.id))?.rules.length, 1, 'rules are replaced, not duplicated');
+
+  await setRoutineArchived(db, routine.id, true);
+  equal((await listNodes(db, { routineId: routine.id })).map((n) => n.isCompleted), [true], 'archiving drops upcoming nodes and keeps completed history');
+  equal(await fillMissingRoutineNodes(db), 0, 'a top-up generates nothing for an archived routine');
+  await setRoutineArchived(db, routine.id, false);
+  equal((await listNodes(db, { routineId: routine.id })).length, 3, 'unarchiving brings the upcoming nodes back');
 
   // Manual rules spawn regardless of the date window.
   const manual = await createRoutine(db, { ...fields, title: 'Office hours', groupIds: [], rules: [rule({ freq: 'manual', startDate: '2026-01-15', startTime: '15:00' })] });

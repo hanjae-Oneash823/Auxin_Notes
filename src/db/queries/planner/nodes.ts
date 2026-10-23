@@ -8,9 +8,11 @@ interface NodeRow {
   id: string;
   project_id: string | null;
   arc_id: string | null;
+  sprint_id: string | null;
   title: string;
   node_type: NodeType;
   pool: Pool;
+  sort_order: number | null;
   planned_start_at: string | null;
   due_at: string | null;
   actual_completed_at: string | null;
@@ -29,7 +31,7 @@ interface NodeRow {
 }
 
 const toNode = (row: NodeRow, groupIds: string[]): PlannerNode => ({
-  id: row.id, projectId: row.project_id, arcId: row.arc_id, title: row.title, nodeType: row.node_type, pool: row.pool,
+  id: row.id, projectId: row.project_id, arcId: row.arc_id, sprintId: row.sprint_id, title: row.title, nodeType: row.node_type, pool: row.pool, sortOrder: row.sort_order,
   plannedStartAt: row.planned_start_at, dueAt: row.due_at, actualCompletedAt: row.actual_completed_at,
   estimatedDurationMinutes: row.estimated_duration_minutes, importanceLevel: row.importance_level,
   isCompleted: toBool(row.is_completed), isLocked: toBool(row.is_locked), isPinned: toBool(row.is_pinned),
@@ -96,8 +98,11 @@ export interface NewNodeInput {
   nodeType?: NodeType;
   /** Defaults to 'hot'. */
   pool?: Pool;
+  sortOrder?: number | null;
   projectId?: string | null;
   arcId?: string | null;
+  /** A node in a sprint takes the sprint's arc and project unless it names its own. */
+  sprintId?: string | null;
   plannedStartAt?: string | null;
   dueAt?: string | null;
   estimatedDurationMinutes?: number | null;
@@ -112,13 +117,18 @@ export interface NewNodeInput {
 export async function insertNode(db: Database, input: NewNodeInput): Promise<string> {
   const id = input.id ?? ulid();
   const now = nowIso();
+  const [sprint] = input.sprintId
+    ? await db.select<{ arc_id: string | null; project_id: string | null }[]>('SELECT arc_id, project_id FROM sprints WHERE id = ?', [input.sprintId])
+    : [];
+  const projectId = input.projectId ?? sprint?.project_id ?? null;
+  const arcId = input.arcId ?? sprint?.arc_id ?? null;
   await db.execute(
     `INSERT INTO nodes
-       (id, project_id, arc_id, title, node_type, pool, planned_start_at, due_at, estimated_duration_minutes,
+       (id, project_id, arc_id, sprint_id, title, node_type, pool, sort_order, planned_start_at, due_at, estimated_duration_minutes,
         importance_level, is_routine, routine_id, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
-      id, input.projectId ?? null, input.arcId ?? null, input.title, input.nodeType ?? 'task', input.pool ?? 'hot',
+      id, projectId, arcId, input.sprintId ?? null, input.title, input.nodeType ?? 'task', input.pool ?? 'hot', input.sortOrder ?? null,
       input.plannedStartAt ?? null, input.dueAt ?? null, input.estimatedDurationMinutes ?? null,
       input.importanceLevel ?? 0, fromBool(input.isRoutine ?? false), input.routineId ?? null, now, now,
     ],
@@ -139,19 +149,27 @@ export async function createNode(db: Database, input: NewNodeInput): Promise<Pla
 
 export type NodePatch = Partial<Pick<
   PlannerNode,
-  'title' | 'nodeType' | 'pool' | 'projectId' | 'arcId' | 'plannedStartAt' | 'dueAt' | 'estimatedDurationMinutes'
+  'title' | 'nodeType' | 'pool' | 'sortOrder' | 'projectId' | 'arcId' | 'sprintId' | 'plannedStartAt' | 'dueAt' | 'estimatedDurationMinutes'
   | 'importanceLevel' | 'isLocked' | 'isPinned' | 'isFrogPinned'
 >>;
 
 /** Replaces Mycelium's `nodes_ts` trigger: every edit bumps updated_at. */
 export async function updateNode(db: Database, id: string, patch: NodePatch): Promise<void> {
   await patchRow(db, 'nodes', id, {
-    title: patch.title, node_type: patch.nodeType, pool: patch.pool, project_id: patch.projectId, arc_id: patch.arcId,
+    title: patch.title, node_type: patch.nodeType, pool: patch.pool, sort_order: patch.sortOrder, project_id: patch.projectId, arc_id: patch.arcId, sprint_id: patch.sprintId,
     planned_start_at: patch.plannedStartAt, due_at: patch.dueAt, estimated_duration_minutes: patch.estimatedDurationMinutes,
     importance_level: patch.importanceLevel, is_locked: optionalBool(patch.isLocked),
     is_pinned: optionalBool(patch.isPinned), is_frog_pinned: optionalBool(patch.isFrogPinned),
     updated_at: nowIso(),
   });
+}
+
+/** Stores a manual order: the first id gets 1, the next 2, and so on. */
+export async function setNodeOrder(db: Database, orderedIds: readonly string[]): Promise<void> {
+  const now = nowIso();
+  for (const [index, id] of orderedIds.entries()) {
+    await db.execute('UPDATE nodes SET sort_order = ?, updated_at = ? WHERE id = ?', [index + 1, now, id]);
+  }
 }
 
 /** Completing logs a productivity_logs row; un-completing removes it (as Mycelium does). */

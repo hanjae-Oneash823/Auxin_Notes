@@ -19,9 +19,9 @@ equal(mentionQueryAt('read @arc paper', 9), 'arc', 'only text before the cursor 
 equal(withoutMention('read @arc', 9), 'read ', 'trailing mention is dropped');
 equal(withoutMention('@arc paper', 4), 'paper', 'leading mention is dropped and the start trimmed');
 
-const arc = (id: string, name: string, status: Arc['status'] = 'active'): Arc => ({ id, name, colorHex: '#f00', description: '', status, createdAt: '' });
+const arc = (id: string, name: string, status: Arc['status'] = 'active'): Arc => ({ id, name, colorHex: '#f00', icon: '', description: '', status, createdAt: '' });
 const project = (id: string, arcId: string | null, name: string, status: Project['status'] = 'active'): Project =>
-  ({ id, arcId, name, description: '', status, startDate: null, endDate: null, createdAt: '' });
+  ({ id, arcId, name, icon: '', description: '', status, startDate: null, endDate: null, createdAt: '' });
 const group = (id: string, name: string, isUngrouped = false): PlannerGroup => ({ id, name, colorHex: '#0f0', sortOrder: 0, isUngrouped, createdAt: '' });
 
 const arcs = [arc('a1', 'School'), arc('a2', 'Old', 'archived')];

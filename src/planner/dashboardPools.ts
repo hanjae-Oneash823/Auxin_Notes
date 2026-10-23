@@ -11,7 +11,7 @@ export interface PoolStyle {
   emptyText: string;
 }
 
-/** Inbox is the landing strip on top; below it Grill | Hot, then Cold | Freezer (reading order = tier order). */
+/** One column, top to bottom: Inbox (landing strip), then the four tiers in priority order. */
 export const POOL_ORDER: readonly Pool[] = ['inbox', 'grill', 'hot', 'cold', 'freezer'];
 
 /** Amber pushed toward ember so Hot reads as heat and not as a warning. */
@@ -34,24 +34,12 @@ export const POOL_STYLES: Record<Pool, PoolStyle> = {
 /** The four tiers in priority order, 1 = most important. Inbox is untriaged, so it has no tier. */
 export const TIER_NUMBER: Partial<Record<Pool, number>> = { grill: 1, hot: 2, cold: 3, freezer: 4 };
 
-/** Where each pool sits on screen (row 0 = the Inbox strip; the Inbox spans both columns, so it sits between them). */
-const GRID_POSITION: Record<Pool, { row: number; col: number }> = {
-  inbox: { row: 0, col: 0.5 },
-  grill: { row: 1, col: 0 },
-  hot: { row: 1, col: 1 },
-  cold: { row: 2, col: 0 },
-  freezer: { row: 2, col: 1 },
-};
-
-const ARROWS: Record<string, string> = {
-  '1,0': '→', '-1,0': '←', '0,1': '↓', '0,-1': '↑', '1,1': '↘', '-1,1': '↙', '1,-1': '↗', '-1,-1': '↖',
-};
+/** Row index of each pool in the single on-screen column, top to bottom. */
+const ROW_OF = Object.fromEntries(POOL_ORDER.map((pool, index) => [pool, index])) as Record<Pool, number>;
 
 /** The arrow that points from one pool's panel toward another's on screen. */
 export function arrowBetween(from: Pool, to: Pool): string {
-  const dx = Math.sign(GRID_POSITION[to].col - GRID_POSITION[from].col);
-  const dy = Math.sign(GRID_POSITION[to].row - GRID_POSITION[from].row);
-  return ARROWS[`${dx},${dy}`] ?? '';
+  return ROW_OF[to] > ROW_OF[from] ? '↓' : '↑';
 }
 
 /** The only pools a row offers a move button for: its neighbors, not every pool. */
@@ -63,15 +51,15 @@ export const MOVE_BUTTONS: Record<Pool, readonly Pool[]> = {
   freezer: ['cold', 'hot'],
 };
 
-export type MoveKey = 'ArrowLeft' | 'ArrowRight' | 'ArrowUp' | 'ArrowDown';
+export type MoveKey = 'ArrowUp' | 'ArrowDown';
 
-/** Where an arrow key sends a focused task, following the on-screen layout: Grill | Hot over Cold | Freezer, Inbox above. */
+/** Where an arrow key sends a focused task: one panel up or down the column. */
 export const KEY_TARGETS: Record<Pool, Partial<Record<MoveKey, Pool>>> = {
   inbox: { ArrowDown: 'grill' },
-  grill: { ArrowRight: 'hot', ArrowDown: 'cold', ArrowUp: 'inbox' },
-  hot: { ArrowLeft: 'grill', ArrowDown: 'freezer', ArrowUp: 'inbox' },
-  cold: { ArrowRight: 'freezer', ArrowUp: 'grill' },
-  freezer: { ArrowLeft: 'cold', ArrowUp: 'hot' },
+  grill: { ArrowUp: 'inbox', ArrowDown: 'hot' },
+  hot: { ArrowUp: 'grill', ArrowDown: 'cold' },
+  cold: { ArrowUp: 'hot', ArrowDown: 'freezer' },
+  freezer: { ArrowUp: 'cold' },
 };
 
 /** Matches `@grill`, `@hot`, `@cold`, `@freezer` or `@inbox` as a whole word in the quick input. */

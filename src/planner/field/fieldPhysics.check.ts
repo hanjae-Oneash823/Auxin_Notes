@@ -14,7 +14,7 @@ function ok(condition: boolean, message: string): void {
 }
 
 const node = (partial: Partial<PlannerNode>): PlannerNode => ({
-  id: 'n', projectId: null, arcId: null, title: 'Node', nodeType: 'task', pool: 'hot', plannedStartAt: null, dueAt: null,
+  id: 'n', projectId: null, arcId: null, sprintId: null, title: 'Node', nodeType: 'task', pool: 'hot', sortOrder: null, plannedStartAt: null, dueAt: null,
   actualCompletedAt: null, estimatedDurationMinutes: null, importanceLevel: 0, isCompleted: false, isLocked: false, isPinned: false,
   isFrogPinned: false, isRoutine: false, routineId: null, createdAt: '', updatedAt: '', groupIds: [], subTotal: 0, subDone: 0,
   ...partial,

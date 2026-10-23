@@ -7,7 +7,7 @@ function equal(actual: unknown, expected: unknown, message: string): void {
 }
 
 const node = (patch: Partial<PlannerNode>): PlannerNode => ({
-  id: 'n', projectId: null, arcId: null, title: 't', nodeType: 'task', pool: 'hot', plannedStartAt: null, dueAt: null, actualCompletedAt: null,
+  id: 'n', projectId: null, arcId: null, sprintId: null, title: 't', nodeType: 'task', pool: 'hot', sortOrder: null, plannedStartAt: null, dueAt: null, actualCompletedAt: null,
   estimatedDurationMinutes: null, importanceLevel: 0, isCompleted: false, isLocked: false, isPinned: false, isFrogPinned: false,
   isRoutine: false, routineId: null, createdAt: '', updatedAt: '', groupIds: [], subTotal: 0, subDone: 0, ...patch,
 });
