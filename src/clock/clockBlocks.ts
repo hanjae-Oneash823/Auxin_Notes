@@ -62,19 +62,24 @@ function arcColorOf(node: PlannerNode, arcs: readonly Arc[], projects: readonly 
   return arcs.find((arc) => arc.id === arcId)?.colorHex ?? NO_ARC_COLOR;
 }
 
-/** Bars for the nodes worked on during a session, clipped to the session's span. A node still
- *  in progress runs for its recorded minutes, else to the end of the session. */
+/** Bars for the nodes worked on during a session, clipped to the session's span. A node with no
+ *  finish time runs for its recorded minutes, else to the end of the session. A node that is
+ *  running right now always runs to the end of the session: a finish time or minutes on its row
+ *  are left over from an earlier run it was skipped out of (older than its new start), not this one. */
 function segmentsOf(entries: readonly SessionNode[], sessionStartMs: number, sessionEndMs: number): ClockSegment[] {
   const segments: ClockSegment[] = [];
   for (const entry of entries) {
     if (!entry.timeStarted) continue;
     const startMs = Math.max(sessionStartMs, Date.parse(entry.timeStarted));
-    const isFinished = entry.timeFinished !== null;
-    const rawEndMs = entry.timeFinished
-      ? Date.parse(entry.timeFinished)
-      : entry.totalMinutes
-        ? startMs + entry.totalMinutes * MINUTE_MS
-        : sessionEndMs;
+    const isRunning = entry.status === 'in_progress';
+    const isFinished = !isRunning && entry.timeFinished !== null;
+    const rawEndMs = isRunning
+      ? sessionEndMs
+      : entry.timeFinished
+        ? Date.parse(entry.timeFinished)
+        : entry.totalMinutes
+          ? startMs + entry.totalMinutes * MINUTE_MS
+          : sessionEndMs;
     const endMs = Math.min(sessionEndMs, rawEndMs);
     if (endMs <= startMs) continue;
     segments.push({ id: entry.nodeId, startMs, endMs, color: entry.arcColor ?? NO_ARC_COLOR, isFinished });

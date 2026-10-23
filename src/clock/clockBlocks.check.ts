@@ -15,7 +15,7 @@ const DAY_START = local('2026-03-02T00:00:00');
 const DAY_END = local('2026-03-02T23:59:59');
 
 const node = (partial: Partial<PlannerNode>): PlannerNode => ({
-  id: 'n', projectId: null, arcId: null, title: 'Node', nodeType: 'task', pool: 'hot', plannedStartAt: '2026-03-02T10:00:00', dueAt: null,
+  id: 'n', projectId: null, arcId: null, sprintId: null, title: 'Node', nodeType: 'task', pool: 'hot', sortOrder: null, plannedStartAt: '2026-03-02T10:00:00', dueAt: null,
   actualCompletedAt: null, estimatedDurationMinutes: 60, importanceLevel: 0, isCompleted: false, isLocked: false, isPinned: false,
   isFrogPinned: false, isRoutine: false, routineId: null, createdAt: '', updatedAt: '', groupIds: [], subTotal: 0, subDone: 0,
   ...partial,
@@ -27,7 +27,7 @@ const session = (partial: Partial<WorkSession>): WorkSession => ({
   status: 'completed', createdAt: '', ...partial,
 });
 
-const arc: Arc = { id: 'a1', name: 'School', colorHex: '#ff0000', description: '', status: 'active', createdAt: '' };
+const arc: Arc = { id: 'a1', name: 'School', colorHex: '#ff0000', icon: '', description: '', status: 'active', createdAt: '' };
 const entry = (partial: Partial<SessionNode>): SessionNode => ({
   sessionId: 's', nodeId: 'n1', sortOrder: 0, status: 'done', timeStarted: null, timeFinished: null, totalMinutes: null, title: 'Node',
   nodeType: 'task', arcId: 'a1', projectId: null, arcName: 'School', arcColor: '#ff0000', ...partial,
@@ -35,7 +35,7 @@ const entry = (partial: Partial<SessionNode>): SessionNode => ({
 const iso = (text: string) => new Date(local(text)).toISOString();
 
 const blocks = (nodes: PlannerNode[], sessions: WorkSession[] = [], now = local('2026-03-02T12:00:00'), sessionNodes: SessionNode[] = [], sleepEntries: SleepEntry[] = []) =>
-  clockBlocks({ nodes, sessions, sessionNodes, sleepEntries, arcs: [arc], projects: [{ id: 'p1', arcId: 'a1', name: 'P', description: '', status: 'active', startDate: null, endDate: null, createdAt: '' }] }, DAY_START, DAY_END, now);
+  clockBlocks({ nodes, sessions, sessionNodes, sleepEntries, arcs: [arc], projects: [{ id: 'p1', arcId: 'a1', name: 'P', icon: '', description: '', status: 'active', startDate: null, endDate: null, createdAt: '' }] }, DAY_START, DAY_END, now);
 
 // Timed nodes: color from the arc (own, else the project's, else grey), length from the estimate, local wall-clock start.
 const [lecture, run, task] = blocks([
@@ -71,6 +71,12 @@ const [withBars] = blocks([], [session({})], local('2026-03-02T12:00:00'), [
 equal(withBars.segments.map((x) => [x.id, (x.endMs - x.startMs) / MINUTE, x.isFinished, x.color]), [
   ['a', 20, true, '#ff0000'], ['b', 30, false, '#ff0000'], ['c', 30, false, '#b0b0a8'],
 ], 'one bar per started node of this session');
+// A node skipped and then started again is in progress, but its row still holds the skip's finish time and minutes
+// (from before the new start) — the bar must run from the new start to the session's end, not vanish.
+const [restarted] = blocks([], [session({})], local('2026-03-02T12:00:00'), [
+  entry({ nodeId: 'r', status: 'in_progress', timeStarted: iso('2026-03-02T14:40:00'), timeFinished: iso('2026-03-02T14:20:00'), totalMinutes: 20 }),
+]);
+equal(restarted.segments.map((x) => [x.id, (x.endMs - x.startMs) / MINUTE, x.isFinished]), [['r', 50, false]], 'a restarted node still gets its bar');
 equal(blocks([], [session({ actualStart: null, status: 'planned' })]).length, 0, 'a session that never started is skipped');
 equal(blocks([], [session({ actualEnd: null, status: 'interrupted' })]).length, 0, 'an ended-without-time session has no length');
 

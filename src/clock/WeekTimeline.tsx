@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from 'react';
-import { CaretLeft, CaretRight } from '@phosphor-icons/react';
 import { useHoverTooltip } from '../layout/HoverTooltip';
 import { useSleepStore } from '../health/sleepStore';
 import { usePlannerStore } from '../planner/plannerStore';
@@ -8,25 +7,12 @@ import { clockBlocks, type ClockBlock, type ClockSegment, SLEEP_COLOR } from './
 import {
   FINISHED_SEGMENT_PERCENT, LIVE_SESSION_BORDER, SEGMENT_HEIGHT_PX, SESSION_BODY, SESSION_BORDER, UNFINISHED_SEGMENT_PERCENT, darkened, segmentColor,
 } from './ClockBlockView';
-import { HOUR_LABELS, dayFraction, dayPieces, loadShade, weekDayStarts, type DayPiece } from './weekGeometry';
+import { WeekFrame, pct } from './WeekFrame';
+import { dayPieces, weekDayStarts, type DayPiece } from './weekGeometry';
 
-/** Shared with the button, which keeps the popup inside the window. */
-export const WEEK_TIMELINE_WIDTH_PX = 380;
-const HOUR_PX = 20;
-const GRID_HEIGHT_PX = 24 * HOUR_PX;
-const LABEL_COL_PX = 32;
-const KEY_HOURS = new Set([9, 12, 15, 18, 21, 24]);
-const MAJOR_LINE_EVERY_HOURS = 3;
 const NOW_CHECK_MS = 60_000;
-const NOW_COLOR = '#ff5555';
 const SLEEP_BODY = `color-mix(in srgb, ${SLEEP_COLOR} 22%, #000)`;
 const SLEEP_BORDER = `color-mix(in srgb, ${SLEEP_COLOR} 70%, transparent)`;
-const TODAY_TINT = 'color-mix(in srgb, var(--accent-link) 8%, transparent)';
-const DAY_NAMES = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'] as const;
-const MONO = { fontFamily: 'var(--font-family-mono)' } as const;
-
-const monthDay = (ms: number) => new Date(ms).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-const pct = (fraction: number) => `${fraction * 100}%`;
 
 /** One block's piece in a day column; its name shows in Auxin's hover tooltip. */
 function WeekBlockPiece({ label, piece, className = '', style }: { label: string; piece: DayPiece; className?: string; style: React.CSSProperties }) {
@@ -117,96 +103,20 @@ export function WeekTimeline() {
     [nodes, sessions, sessionNodes, sleepEntries, arcs, projects, dayStarts, nowMs],
   );
 
-  const days = DAY_NAMES.map((name, index) => {
+  const dayLoads = Array.from({ length: 7 }, (_, index) => {
     const planned = blocks.filter((block) => block.lane === 'planned' && block.startMs >= dayStarts[index] && block.startMs < dayStarts[index + 1]);
-    return {
-      name,
-      start: dayStarts[index],
-      end: dayStarts[index + 1],
-      isToday: nowMs >= dayStarts[index] && nowMs < dayStarts[index + 1],
-      plannedCount: planned.length,
-      shade: loadShade(planned.reduce((total, block) => total + (block.endMs - block.startMs) / 60_000, 0)),
-    };
+    return { count: planned.length, minutes: planned.reduce((total, block) => total + (block.endMs - block.startMs) / 60_000, 0) };
   });
 
   return (
-    <div className="flex flex-col gap-2 p-3 text-fg-muted" style={{ width: WEEK_TIMELINE_WIDTH_PX, fontSize: '0.75rem' }}>
-      <div className="flex items-center justify-center gap-2 border border-border-subtle px-2 py-1" style={MONO}>
-        <button type="button" aria-label="Previous week" onClick={() => setWeekOffset((offset) => offset - 1)} className="hover:text-fg-prominent">
-          <CaretLeft size={13} />
-        </button>
-        <span className="text-fg-prominent">{monthDay(dayStarts[0])} – {monthDay(dayStarts[6])}</span>
-        <button type="button" onClick={() => setWeekOffset(0)} className={weekOffset === 0 ? 'text-accent-link' : 'text-fg-faint hover:text-fg-prominent'}>
-          [this week]
-        </button>
-        <button type="button" aria-label="Next week" onClick={() => setWeekOffset((offset) => offset + 1)} className="hover:text-fg-prominent">
-          <CaretRight size={13} />
-        </button>
-      </div>
-
-      <div className="flex" style={{ paddingLeft: LABEL_COL_PX }}>
-        {days.map((day) => (
-          <div key={day.start} className="flex flex-1 flex-col items-center gap-0.5 border-b border-border-subtle pb-1">
-            <span className={`uppercase ${day.isToday ? 'text-accent-link' : ''}`} style={{ ...MONO, letterSpacing: '0.1em' }}>{day.name}</span>
-            <span
-              className={`px-1.5 ${day.isToday ? 'bg-accent-link text-black' : 'text-fg-faint'}`}
-              style={{ ...MONO, fontSize: '0.9rem', lineHeight: 1.3 }}
-            >
-              {new Date(day.start).getDate()}
-            </span>
-          </div>
-        ))}
-      </div>
-
-      <div className="flex h-[18px]" style={{ paddingLeft: LABEL_COL_PX }}>
-        {days.map((day) => (
-          <div key={day.start} className="flex flex-1 justify-center">
-            {day.shade && day.plannedCount > 0 && (
-              <span className="flex h-[18px] w-[18px] items-center justify-center font-bold text-black" style={{ ...MONO, background: day.shade }}>
-                {day.plannedCount}
-              </span>
-            )}
-          </div>
-        ))}
-      </div>
-
-      <div className="relative flex" style={{ height: GRID_HEIGHT_PX }}>
-        <div className="relative shrink-0" style={{ width: LABEL_COL_PX }}>
-          {HOUR_LABELS.map((hour) => {
-            const isCurrentHour = days.some((day) => day.isToday) && hour === new Date(nowMs).getHours();
-            return (
-              <span
-                key={hour}
-                className={`absolute inset-x-0 text-center leading-none ${KEY_HOURS.has(hour) || isCurrentHour ? 'font-bold' : ''} ${KEY_HOURS.has(hour) ? 'text-fg-muted' : 'text-fg-faint'}`}
-                style={{ ...MONO, top: Math.max(0, hour * HOUR_PX - 5), color: isCurrentHour ? NOW_COLOR : undefined }}
-              >
-                {String(hour).padStart(2, '0')}
-              </span>
-            );
-          })}
-        </div>
-
-        <div className="relative flex flex-1">
-          {HOUR_LABELS.map((hour) => (
-            <span
-              key={hour}
-              className="pointer-events-none absolute inset-x-0 h-px bg-fg-faint"
-              style={{ top: hour * HOUR_PX, opacity: hour % MAJOR_LINE_EVERY_HOURS === 0 ? 0.35 : 0.15 }}
-            />
-          ))}
-          {days.map((day, index) => {
-            const nowFraction = dayFraction(nowMs, day.start, day.end);
-            return (
-              <div key={day.start} className={`relative flex-1 ${index > 0 ? 'border-l border-border-subtle' : ''}`} style={{ background: day.isToday ? TODAY_TINT : undefined }}>
-                <DayColumnBlocks blocks={blocks} dayStarts={dayStarts} dayIndex={index} nowMs={nowMs} />
-                {nowFraction !== null && (
-                  <span className="pointer-events-none absolute inset-x-0 h-0.5" style={{ top: pct(nowFraction), background: NOW_COLOR, zIndex: 5, boxShadow: `0 0 6px 1px ${NOW_COLOR}66` }} />
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    </div>
+    <WeekFrame
+      weekOffset={weekOffset}
+      onWeekOffsetChange={setWeekOffset}
+      nowMs={nowMs}
+      dayStarts={dayStarts}
+      dayLoads={dayLoads}
+      isFillingHeight
+      renderDay={(index) => <DayColumnBlocks blocks={blocks} dayStarts={dayStarts} dayIndex={index} nowMs={nowMs} />}
+    />
   );
 }

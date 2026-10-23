@@ -3,17 +3,20 @@ import { createPortal } from 'react-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { CalendarBlank } from '@phosphor-icons/react';
 import { useHoverTooltip } from '../layout/HoverTooltip';
-import { WEEK_TIMELINE_WIDTH_PX, WeekTimeline } from './WeekTimeline';
+import { WEEK_TIMELINE_WIDTH_PX } from './WeekFrame';
+import { WeekTimeline } from './WeekTimeline';
 
 /** Gap between the button and the popup under it, and the minimum margin to the window edge. */
 const POPUP_GAP_PX = 6;
 const WINDOW_MARGIN_PX = 8;
+/** Portrait 1:2 — the grid stretches to fill whatever height this leaves under the header. */
+const WEEK_TIMELINE_HEIGHT_PX = WEEK_TIMELINE_WIDTH_PX * 2;
 
-/** The week button at the clock strip's left end. Its popup opens just under it; click outside or Esc closes it. */
+/** The week button floating at the clock strip's left end. Its popup opens just under it; click outside or Esc closes it. */
 export function WeekTimelineButton() {
   const [isOpen, setIsOpen] = useState(false);
   // Kept after closing, so the popup stays put while it animates out.
-  const [anchor, setAnchor] = useState({ top: 0, left: 0 });
+  const [anchor, setAnchor] = useState({ top: 0, left: 0, scale: 1 });
   const buttonRef = useRef<HTMLButtonElement>(null);
   const popupRef = useRef<HTMLDivElement>(null);
   const { hoverProps, hide, tooltip } = useHoverTooltip('Weekly timeline');
@@ -37,7 +40,10 @@ export function WeekTimelineButton() {
     const rect = buttonRef.current?.getBoundingClientRect();
     if (!rect || isOpen) return setIsOpen(false);
     const maxLeft = window.innerWidth - WEEK_TIMELINE_WIDTH_PX - WINDOW_MARGIN_PX;
-    setAnchor({ top: rect.bottom + POPUP_GAP_PX, left: Math.max(WINDOW_MARGIN_PX, Math.min(rect.left, maxLeft)) });
+    const top = rect.bottom + POPUP_GAP_PX;
+    // Shrinks the whole popup (keeping 1:2) when the window is too short for it.
+    const scale = Math.min(1, (window.innerHeight - top - WINDOW_MARGIN_PX) / WEEK_TIMELINE_HEIGHT_PX);
+    setAnchor({ top, left: Math.max(WINDOW_MARGIN_PX, Math.min(rect.left, maxLeft)), scale });
     setIsOpen(true);
   }
 
@@ -76,10 +82,12 @@ export function WeekTimelineButton() {
               exit={{ opacity: 0, y: -6, scale: 0.985, transition: { duration: 0.1, ease: 'easeIn' } }}
               // A portal still bubbles React events to the strip, which would start a pan.
               onPointerDown={(event) => event.stopPropagation()}
-              className="fixed z-40 max-h-[calc(100vh-72px)] overflow-y-auto border border-border bg-bg"
-              style={{ top: anchor.top, left: anchor.left, transformOrigin: 'top left', boxShadow: 'var(--shadow-float)', fontFamily: 'var(--font-family)' }}
+              className="fixed z-40 box-content overflow-hidden border border-border bg-bg"
+              style={{ top: anchor.top, left: anchor.left, width: WEEK_TIMELINE_WIDTH_PX * anchor.scale, height: WEEK_TIMELINE_HEIGHT_PX * anchor.scale, transformOrigin: 'top left', boxShadow: 'var(--shadow-float)', fontFamily: 'var(--font-family)' }}
             >
-              <WeekTimeline />
+              <div style={{ width: WEEK_TIMELINE_WIDTH_PX, height: WEEK_TIMELINE_HEIGHT_PX, transform: `scale(${anchor.scale})`, transformOrigin: 'top left' }}>
+                <WeekTimeline />
+              </div>
             </motion.div>
           )}
         </AnimatePresence>,
